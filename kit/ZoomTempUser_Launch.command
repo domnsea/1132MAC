@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 # ZoomTempUser_Launch.command
-# Creates a hidden temporary Mac user, launches Zoom in the logged-in
-# GUI session so a window can appear, then deletes that user when Zoom quits.
+# Hide this Mac account's personal Zoom identity, open a logged-out Zoom
+# session, then restore the personal identity when Zoom quits.
 #
-# Zoom itself cannot run as the temporary UID on SIP-enabled macOS.
-# v94's launchctl bsexec + $ZOOM_BIN as UID 504 aborts in _RegisterApplication.
-# This script keeps the temp-user lifecycle, but opens Zoom as the console
-# user through Launch Services and stores Zoom's files in the temp home.
+# Your church group will not see the gamer Zoom login because that saved
+# account (files + Keychain) is parked before Zoom starts.
+# A hidden temporary Mac user is created and deleted around the session.
 
 set -u -o pipefail
 
 SCRIPT_NAME="ZoomTempUser_Launch.command"
-SCRIPT_VERSION="1.2.0"
+SCRIPT_VERSION="1.3.0"
 LOG_FILE="$HOME/Desktop/ZoomTempUser_$(date +%Y%m%d_%H%M%S).log"
 RUN_ID="$(date +%Y%m%d%H%M%S)"
+PARK_DIR="$HOME/.zwtf_identity_park/${RUN_ID}"
 
 HAVE_SUDO=0
 SUDO_KEEPALIVE_PID=""
@@ -21,9 +21,7 @@ TEMP_USER=""
 TEMP_HOME=""
 TEMP_UID=""
 CLEANED_UP=0
-BACKUP_SUFFIX=".zwtfbak.${RUN_ID}"
-REDIRECTS=()
-BACKUPS=()
+KEYCHAIN_PARKED=0
 
 log() {
   printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" | tee -a "$LOG_FILE"
@@ -66,13 +64,14 @@ prompt_sudo() {
     log "Already running with admin rights."
     return 0
   fi
-  echo "macOS will ask for your password so the script can create and later delete a temporary user."
+  echo "macOS will ask for your password so the script can create a temporary user"
+  echo "and keep your personal Zoom login hidden until you quit."
   if sudo -v; then
     HAVE_SUDO=1
     log "Admin rights granted."
     return 0
   fi
-  echo "A temporary user cannot be created without admin rights."
+  echo "Admin rights are required."
   exit 1
 }
 
@@ -90,7 +89,7 @@ kill_sudo_keepalive() {
   fi
 }
 
-run_as_console() {
+run_open_as_console() {
   local console_uid
   console_uid="$(get_console_uid)"
   if [[ "$EUID" -eq 0 && -n "$console_uid" && "$console_uid" != "0" ]]; then
@@ -137,6 +136,18 @@ zoom_is_running() {
   return 1
 }
 
+zoom_process_owner() {
+  local pid
+  pid="$(pgrep -x "zoom.us" 2>/dev/null | head -n 1 || true)"
+  if [[ -z "$pid" ]]; then
+    pid="$(pgrep -x "Zoom" 2>/dev/null | head -n 1 || true)"
+  fi
+  if [[ -z "$pid" ]]; then
+    return 1
+  fi
+  ps -p "$pid" -o user= 2>/dev/null | awk '{print $1}'
+}
+
 stop_zoom() {
   log "Stopping existing Zoom processes..."
   run_quiet osascript -e 'tell application "zoom.us" to quit' || true
@@ -156,6 +167,293 @@ stop_zoom() {
     sleep 1
   done
   warn "Zoom processes were still running; continuing anyway."
+}
+
+list_zoom_identity_paths() {
+  local base="$1"
+  local dir
+  for dir in \
+    "$base/Library/Application Support" \
+    "$base/Library/Caches" \
+    "$base/Library/Preferences" \
+    "$base/Library/Preferences/ByHost" \
+    "$base/Library/Saved Application State" \
+    "$base/Library/HTTPStorages" \
+    "$base/Library/WebKit" \
+    "$base/Library/Cookies" \
+    "$base/Library/Logs" \
+    "$base/Library/Group Containers" \
+    "$base/Library/Containers" \
+    "$base/Library/Application Scripts" \
+    "$base/Library/Internet Plug-Ins" \
+    "$base/Library/LaunchAgents" \
+    "$base/Library/Receipts"
+  do
+    [[ -d "$dir" ]] || continue
+    find "$dir" -maxdepth 1 \( -iname '*zoom*' -o -iname 'us.zoom*' \) 2>/dev/null
+  done
+  if [[ -e "$base/Documents/Zoom" ]]; then
+    printf '%s\n' "$base/Documents/Zoom"
+  fi
+}
+
+park_personal_zoom_files() {
+  local src n=0
+  mkdir -p "$PARK_DIR/items"
+  : > "$PARK_DIR/manifest.txt"
+  log "Parking personal Zoom files so this session cannot see them..."
+  while IFS= read -r src; do
+    [[ -e "$src" || -L "$src" ]] || continue
+    case "$src" in
+      "$PARK_DIR"*) continue ;;
+    esac
+    n=$((n + 1))
+    mv "$src" "$PARK_DIR/items/$n" >>"$LOG_FILE" 2>&1 && {
+      printf '%s\t%s\n' "$n" "$src" >> "$PARK_DIR/manifest.txt"
+      log "Parked: $src"
+    } || warn "Could not park: $src"
+  done < <(list_zoom_identity_paths "$HOME")
+  run_quiet killall -u "$USER" cfprefsd || true
+  sleep 1
+}
+
+unpark_personal_zoom_files() {
+  local n src
+  discard_session_zoom_files
+  if [[ ! -f "$PARK_DIR/manifest.txt" ]]; then
+    return 0
+  fi
+  log "Restoring personal Zoom files..."
+  while IFS=$'\t' read -r n src; do
+    [[ -n "$n" && -n "$src" ]] || continue
+    mkdir -p "$(dirname "$src")"
+    rm -rf "$src" >>"$LOG_FILE" 2>&1 || true
+    if [[ -e "$PARK_DIR/items/$n" || -L "$PARK_DIR/items/$n" ]]; then
+      mv "$PARK_DIR/items/$n" "$src" >>"$LOG_FILE" 2>&1 && log "Restored: $src" || warn "Could not restore: $src"
+    fi
+  done < "$PARK_DIR/manifest.txt"
+  run_quiet killall -u "$USER" cfprefsd || true
+}
+
+discard_session_zoom_files() {
+  local p
+  log "Discarding Zoom files created during the isolated session..."
+  while IFS= read -r p; do
+    [[ -e "$p" || -L "$p" ]] || continue
+    case "$p" in
+      "$PARK_DIR"*) continue ;;
+    esac
+    rm -rf "$p" >>"$LOG_FILE" 2>&1 && log "Removed session file: $p" || warn "Could not remove: $p"
+  done < <(list_zoom_identity_paths "$HOME")
+}
+
+write_keychain_helper() {
+  mkdir -p "$PARK_DIR"
+  cat > "$PARK_DIR/zoom_keychain.py" <<'PY'
+#!/usr/bin/env python3
+import json
+import os
+import re
+import subprocess
+import sys
+
+ZOOM_RE = re.compile(r"zoom", re.I)
+
+
+def run(cmd):
+    return subprocess.run(cmd, capture_output=True, text=True)
+
+
+def parse_records(text):
+    records = []
+    cur = {}
+    for line in text.splitlines():
+        if line.startswith("class:"):
+            if cur:
+                records.append(cur)
+            cur = {}
+            m = re.search(r'"([^"]+)"', line)
+            if m:
+                cur["class"] = m.group(1)
+            continue
+        m = re.search(
+            r'"(acct|svce|labl|desc|srvr)"\s*<blob>=(?:<NULL>|"((?:\\.|[^"\\])*)")',
+            line,
+        )
+        if m:
+            cur[m.group(1)] = (m.group(2) or "").replace('\\"', '"')
+    if cur:
+        records.append(cur)
+    return records
+
+
+def is_zoom(rec):
+    blob = " ".join(rec.get(k, "") for k in ("acct", "svce", "labl", "desc", "srvr"))
+    return bool(ZOOM_RE.search(blob))
+
+
+def password_for(rec):
+    if rec.get("class") == "inet":
+        cmd = ["security", "find-internet-password"]
+    else:
+        cmd = ["security", "find-generic-password"]
+    if rec.get("svce"):
+        cmd += ["-s", rec["svce"]]
+    if rec.get("acct"):
+        cmd += ["-a", rec["acct"]]
+    if rec.get("labl") and not rec.get("svce"):
+        cmd += ["-l", rec["labl"]]
+    cmd += ["-w"]
+    r = run(cmd)
+    if r.returncode != 0:
+        return None
+    return r.stdout.rstrip("\n")
+
+
+def delete_rec(rec):
+    if rec.get("class") == "inet":
+        cmd = ["security", "delete-internet-password"]
+    else:
+        cmd = ["security", "delete-generic-password"]
+    if rec.get("svce"):
+        cmd += ["-s", rec["svce"]]
+    if rec.get("acct"):
+        cmd += ["-a", rec["acct"]]
+    if rec.get("labl") and not rec.get("svce"):
+        cmd += ["-l", rec["labl"]]
+    return run(cmd).returncode == 0
+
+
+def add_rec(rec):
+    pw = rec.get("password")
+    if pw is None:
+        return False
+    if rec.get("class") == "inet":
+        cmd = ["security", "add-internet-password"]
+    else:
+        cmd = ["security", "add-generic-password"]
+    if rec.get("labl"):
+        cmd += ["-l", rec["labl"]]
+    if rec.get("svce"):
+        cmd += ["-s", rec["svce"]]
+    if rec.get("acct"):
+        cmd += ["-a", rec["acct"]]
+    cmd += ["-w", pw]
+    return run(cmd).returncode == 0
+
+
+def dump_all():
+    r = run(["security", "dump-keychain"])
+    return parse_records(r.stdout + "\n" + r.stderr)
+
+
+def cmd_save(path):
+    saved = []
+    for rec in dump_all():
+        if not is_zoom(rec):
+            continue
+        rec["password"] = password_for(rec)
+        saved.append(rec)
+        delete_rec(rec)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(saved, fh)
+        fh.write("\n")
+    os.chmod(path, 0o600)
+    leftover = [rec for rec in dump_all() if is_zoom(rec)]
+    if leftover:
+        print("LEFTOVER %d" % len(leftover), file=sys.stderr)
+        return 2
+    print("SAVED %d" % len(saved))
+    return 0
+
+
+def cmd_restore(path):
+    if not os.path.isfile(path):
+        print("NOFILE")
+        return 0
+    with open(path, encoding="utf-8") as fh:
+        saved = json.load(fh)
+    restored = 0
+    for rec in saved:
+        if add_rec(rec):
+            restored += 1
+    print("RESTORED %d" % restored)
+    return 0
+
+
+def cmd_count():
+    n = sum(1 for rec in dump_all() if is_zoom(rec))
+    print(n)
+    return 0
+
+
+def main():
+    if len(sys.argv) < 2:
+        return 1
+    op = sys.argv[1]
+    if op == "save":
+        return cmd_save(sys.argv[2])
+    if op == "restore":
+        return cmd_restore(sys.argv[2])
+    if op == "count":
+        return cmd_count()
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+PY
+  chmod 700 "$PARK_DIR/zoom_keychain.py"
+}
+
+park_zoom_keychain() {
+  local helper json status
+  write_keychain_helper
+  helper="$PARK_DIR/zoom_keychain.py"
+  json="$PARK_DIR/zoom_keychain.json"
+  echo
+  echo "If Keychain Access asks permission, click Allow."
+  echo "That hides your saved gamer Zoom login for this session and puts it back when you quit."
+  echo
+  log "Parking Zoom Keychain items..."
+  python3 "$helper" save "$json" >>"$LOG_FILE" 2>&1
+  status=$?
+  if [[ "$status" -ne 0 ]]; then
+    echo "Could not fully hide Zoom saved passwords in Keychain."
+    echo "Refusing to launch, so your gamer login cannot leak."
+    echo "Log: $LOG_FILE"
+    exit 1
+  fi
+  KEYCHAIN_PARKED=1
+}
+
+unpark_zoom_keychain() {
+  local helper json
+  helper="$PARK_DIR/zoom_keychain.py"
+  json="$PARK_DIR/zoom_keychain.json"
+  if [[ "$KEYCHAIN_PARKED" -ne 1 || ! -f "$json" ]]; then
+    return 0
+  fi
+  log "Restoring Zoom Keychain items..."
+  python3 "$helper" restore "$json" >>"$LOG_FILE" 2>&1 || warn "Could not restore every Zoom Keychain item. You may need to sign in to your personal Zoom account again."
+}
+
+personal_zoom_still_visible() {
+  local p count
+  while IFS= read -r p; do
+    [[ -e "$p" || -L "$p" ]] || continue
+    case "$p" in
+      "$PARK_DIR"*) continue ;;
+    esac
+    return 0
+  done < <(list_zoom_identity_paths "$HOME")
+  if [[ -f "$PARK_DIR/zoom_keychain.py" ]]; then
+    count="$(python3 "$PARK_DIR/zoom_keychain.py" count 2>/dev/null || echo 1)"
+    if [[ "$count" != "0" ]]; then
+      return 0
+    fi
+  fi
+  return 1
 }
 
 free_hidden_uid() {
@@ -186,104 +484,18 @@ create_temp_user() {
   pass="$(openssl rand -base64 18 2>/dev/null || date +%s)"
 
   log "Creating hidden temporary user ${TEMP_USER} (uid ${TEMP_UID})"
-
-  if dscl . -read "/Users/${TEMP_USER}" >/dev/null 2>&1; then
-    warn "User ${TEMP_USER} already exists; choosing another name."
-    rand="${RUN_ID}"
-    TEMP_USER="zwtf${rand: -8}"
-    TEMP_HOME="/Users/${TEMP_USER}"
-  fi
-
   sudo dscl . -create "/Users/${TEMP_USER}" >>"$LOG_FILE" 2>&1
   sudo dscl . -create "/Users/${TEMP_USER}" UserShell /usr/bin/false >>"$LOG_FILE" 2>&1
-  sudo dscl . -create "/Users/${TEMP_USER}" RealName "Zoom Temporary" >>"$LOG_FILE" 2>&1
+  sudo dscl . -create "/Users/${TEMP_USER}" RealName "Zoom Guest" >>"$LOG_FILE" 2>&1
   sudo dscl . -create "/Users/${TEMP_USER}" UniqueID "$TEMP_UID" >>"$LOG_FILE" 2>&1
   sudo dscl . -create "/Users/${TEMP_USER}" PrimaryGroupID 20 >>"$LOG_FILE" 2>&1
   sudo dscl . -create "/Users/${TEMP_USER}" NFSHomeDirectory "$TEMP_HOME" >>"$LOG_FILE" 2>&1
   sudo dscl . -create "/Users/${TEMP_USER}" IsHidden 1 >>"$LOG_FILE" 2>&1
-  sudo dscl . -passwd "/Users/${TEMP_USER}" "$pass" >>"$LOG_FILE" 2>&1 || warn "Could not set temp user password (login is disabled anyway)."
-
-  sudo mkdir -p "$TEMP_HOME/Library/Application Support" \
-    "$TEMP_HOME/Library/Caches" \
-    "$TEMP_HOME/Library/Preferences" \
-    "$TEMP_HOME/Library/Saved Application State" \
-    "$TEMP_HOME/Library/HTTPStorages" \
-    "$TEMP_HOME/Library/WebKit" \
-    "$TEMP_HOME/Library/Cookies" \
-    "$TEMP_HOME/Library/Logs" \
-    "$TEMP_HOME/tmp" >>"$LOG_FILE" 2>&1
+  sudo dscl . -passwd "/Users/${TEMP_USER}" "$pass" >>"$LOG_FILE" 2>&1 || true
+  sudo mkdir -p "$TEMP_HOME/Library" "$TEMP_HOME/tmp" >>"$LOG_FILE" 2>&1
   sudo chown -R "${TEMP_UID}:20" "$TEMP_HOME" >>"$LOG_FILE" 2>&1
   sudo chmod 755 "$TEMP_HOME" >>"$LOG_FILE" 2>&1
-  sudo chmod +a "$(get_console_user) allow list,add_file,search,add_subdirectory,delete_child,read,write,execute,append,delete,file_inherit,directory_inherit" "$TEMP_HOME" >>"$LOG_FILE" 2>&1 \
-    || sudo chmod -R 777 "$TEMP_HOME" >>"$LOG_FILE" 2>&1
-
   log "Temporary user home: $TEMP_HOME"
-}
-
-zoom_data_paths() {
-  local base="$1"
-  printf '%s\n' \
-    "$base/Library/Application Support/zoom.us" \
-    "$base/Library/Application Support/Zoom" \
-    "$base/Library/Caches/us.zoom.xos" \
-    "$base/Library/Caches/zoom.us" \
-    "$base/Library/Preferences/us.zoom.xos.plist" \
-    "$base/Library/Preferences/zoom.us.plist" \
-    "$base/Library/Saved Application State/us.zoom.xos.savedState" \
-    "$base/Library/Saved Application State/zoom.us.savedState" \
-    "$base/Library/HTTPStorages/us.zoom.xos" \
-    "$base/Library/HTTPStorages/us.zoom.xos.binarycookies" \
-    "$base/Library/WebKit/us.zoom.xos" \
-    "$base/Library/Cookies/us.zoom.xos.binarycookies" \
-    "$base/Library/Logs/zoom.us"
-}
-
-stage_temp_path() {
-  local real="$1"
-  local rel="${real#$HOME/}"
-  printf '%s/%s\n' "$TEMP_HOME" "$rel"
-}
-
-redirect_zoom_data() {
-  local real staged parent
-  log "Pointing this account's Zoom files at the temporary user home..."
-  while IFS= read -r real; do
-    staged="$(stage_temp_path "$real")"
-    parent="$(dirname "$real")"
-    mkdir -p "$parent" >>"$LOG_FILE" 2>&1 || true
-    sudo mkdir -p "$(dirname "$staged")" >>"$LOG_FILE" 2>&1 || true
-
-    if [[ -L "$real" ]]; then
-      rm -f "$real" >>"$LOG_FILE" 2>&1 || true
-    elif [[ -e "$real" ]]; then
-      mv "$real" "${real}${BACKUP_SUFFIX}" >>"$LOG_FILE" 2>&1 && BACKUPS+=("$real") || warn "Could not move aside: $real"
-    fi
-
-    if [[ "$real" == *.plist || "$real" == *.binarycookies ]]; then
-      sudo touch "$staged" >>"$LOG_FILE" 2>&1 || true
-    else
-      sudo mkdir -p "$staged" >>"$LOG_FILE" 2>&1 || true
-    fi
-    sudo chown -R "$(get_console_uid):20" "$(dirname "$staged")" >>"$LOG_FILE" 2>&1 || true
-    ln -s "$staged" "$real" >>"$LOG_FILE" 2>&1 && REDIRECTS+=("$real") || warn "Could not redirect: $real"
-  done < <(zoom_data_paths "$HOME")
-}
-
-restore_zoom_data() {
-  local real
-  for real in "${REDIRECTS[@]+"${REDIRECTS[@]}"}"; do
-    if [[ -L "$real" ]]; then
-      rm -f "$real" >>"$LOG_FILE" 2>&1 || true
-    fi
-  done
-  REDIRECTS=()
-  for real in "${BACKUPS[@]+"${BACKUPS[@]}"}"; do
-    if [[ -e "${real}${BACKUP_SUFFIX}" ]]; then
-      rm -rf "$real" >>"$LOG_FILE" 2>&1 || true
-      mv "${real}${BACKUP_SUFFIX}" "$real" >>"$LOG_FILE" 2>&1 && log "Restored: $real" || warn "Could not restore: $real"
-    fi
-  done
-  BACKUPS=()
 }
 
 delete_temp_user() {
@@ -307,6 +519,13 @@ delete_temp_user() {
   TEMP_USER=""
 }
 
+remove_park_dir() {
+  if [[ -d "$PARK_DIR" ]]; then
+    rm -rf "$PARK_DIR" >>"$LOG_FILE" 2>&1 || warn "Could not remove $PARK_DIR"
+  fi
+  rmdir "$HOME/.zwtf_identity_park" >>"$LOG_FILE" 2>&1 || true
+}
+
 cleanup() {
   local status=$?
   if [[ "$CLEANED_UP" -eq 1 ]]; then
@@ -315,23 +534,12 @@ cleanup() {
   CLEANED_UP=1
   kill_sudo_keepalive
   stop_zoom || true
-  restore_zoom_data
+  unpark_personal_zoom_files
+  unpark_zoom_keychain
   delete_temp_user
-  log "Cleanup finished."
+  remove_park_dir
+  log "Cleanup finished. Personal Zoom identity should be restored."
   return "$status"
-}
-
-launch_zoom_for_gui() {
-  local zoom_app="$1"
-  log "Launching Zoom through Launch Services as $(get_console_user)"
-  if run_as_console -na "$zoom_app"; then
-    return 0
-  fi
-  warn "open -na failed; trying app name fallbacks."
-  run_as_console -na "Zoom Workplace" && return 0
-  run_as_console -na "zoom.us" && return 0
-  run_as_console -na "Zoom" && return 0
-  return 1
 }
 
 wait_for_zoom_start() {
@@ -339,7 +547,7 @@ wait_for_zoom_start() {
   for i in $(seq 1 20); do
     sleep 1
     if zoom_is_running; then
-      log "Zoom is running."
+      log "Zoom is running as $(zoom_process_owner || echo unknown)."
       return 0
     fi
   done
@@ -348,8 +556,10 @@ wait_for_zoom_start() {
 
 wait_for_zoom_quit() {
   echo
-  echo "Zoom is open. Leave this Terminal window alone."
-  echo "When you quit Zoom, the temporary user is deleted."
+  echo "Zoom should now be logged out of your personal/gamer account."
+  echo "Sign in with the church account for this session."
+  echo "Leave this Terminal window open. When you quit Zoom, your gamer"
+  echo "Zoom login is restored and the temporary user is deleted."
   echo
   log "Waiting for Zoom to quit..."
   while zoom_is_running; do
@@ -360,23 +570,53 @@ wait_for_zoom_quit() {
   log "Zoom has quit."
 }
 
+launch_isolated_zoom() {
+  local zoom_app="$1"
+  local owner
+
+  log "Trying to open Zoom as temporary user ${TEMP_USER}..."
+  if sudo -u "$TEMP_USER" -H /usr/bin/open -na "$zoom_app" >>"$LOG_FILE" 2>&1; then
+    if wait_for_zoom_start; then
+      owner="$(zoom_process_owner || true)"
+      if [[ "$owner" == "$TEMP_USER" ]]; then
+        log "Zoom is running as the temporary user."
+        return 0
+      fi
+      log "open-as-temp-user started Zoom as ${owner:-unknown}; keeping the parked personal identity."
+      return 0
+    fi
+  fi
+
+  log "Opening Zoom through Launch Services in the desktop session (personal Zoom files still parked)."
+  if run_open_as_console -na "$zoom_app" \
+    || run_open_as_console -na "Zoom Workplace" \
+    || run_open_as_console -na "zoom.us" \
+    || run_open_as_console -na "Zoom"; then
+    if wait_for_zoom_start; then
+      return 0
+    fi
+  fi
+  return 1
+}
+
 main() {
   check_platform
   mkdir -p "$(dirname "$LOG_FILE")"
   : > "$LOG_FILE"
 
   echo "===================================="
-  echo " ZOOM TEMPORARY USER LAUNCH FOR MAC "
+  echo " ZOOM GUEST SESSION FOR MAC "
   echo "===================================="
   echo
-  echo "This creates a hidden temporary Mac user, opens Zoom in your"
-  echo "desktop session, and deletes that user when you quit Zoom."
+  echo "This hides your personal/gamer Zoom login, opens Zoom logged out,"
+  echo "and puts your personal Zoom back when you quit."
   echo
 
   log "Script started: $SCRIPT_NAME v$SCRIPT_VERSION"
   log "macOS user: $USER"
   log "Console GUI user: $(get_console_user)"
   log "Log file: $LOG_FILE"
+  log "Park directory: $PARK_DIR"
 
   if ! gui_login_available; then
     echo "No desktop login session. Run this from the Mac, not SSH."
@@ -397,25 +637,29 @@ main() {
   log "Using Zoom app: $zoom_app"
 
   stop_zoom
-  create_temp_user
-  redirect_zoom_data
+  mkdir -p "$PARK_DIR"
+  chmod 700 "$PARK_DIR"
+  park_personal_zoom_files
+  park_zoom_keychain
 
-  if ! launch_zoom_for_gui "$zoom_app"; then
-    echo "Could not ask Launch Services to open Zoom."
+  if personal_zoom_still_visible; then
+    echo "Could not fully hide personal Zoom data. Refusing to launch."
+    echo "Log: $LOG_FILE"
     exit 1
   fi
+  log "Personal Zoom identity is parked and hidden from this session."
 
-  if ! wait_for_zoom_start; then
-    echo
-    echo "Zoom did not stay running. If macOS showed Abort trap 6 / _RegisterApplication,"
-    echo "Zoom was still started outside your desktop session."
+  create_temp_user
+
+  if ! launch_isolated_zoom "$zoom_app"; then
+    echo "Zoom did not stay running."
     echo "Log: $LOG_FILE"
     exit 1
   fi
 
   wait_for_zoom_quit
   echo
-  echo "Done. Temporary user removed."
+  echo "Done. Personal Zoom login restored. Temporary user removed."
   echo "Log: $LOG_FILE"
   log "Script finished."
 }

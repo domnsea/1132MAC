@@ -10,32 +10,37 @@ FILES IN THIS KIT
 
 WHICH FILE TO USE
 
-Use ZoomTempUser_Launch.command if you want Zoom to open now, with a hidden
-temporary Mac user that is deleted when you quit Zoom.
+Use ZoomTempUser_Launch.command if you want a church/guest Zoom session that
+cannot see your personal/gamer Zoom login. Your gamer account is restored
+when you quit Zoom.
 
 Use ZoomReset_Universal_Mac.command if you only want to wipe leftover Zoom
 files and then reopen Zoom in your own account.
 
-TEMPORARY USER LAUNCH
+GUEST / CHURCH SESSION
 
 Double-click ZoomTempUser_Launch.command from the Mac desktop (not SSH, not sudo).
 
 It will:
 
 1. Ask for your Mac password
-2. Create a hidden temporary user
-3. Point this session's Zoom files at that user's home
-4. Open Zoom through Launch Services in your desktop session
-5. Wait until you quit Zoom
-6. Restore your previous Zoom files
-7. Delete the temporary user
+2. Quit Zoom
+3. Park every personal Zoom file it can find (including Group Containers)
+4. Park Zoom saved logins from Keychain (click Allow if macOS asks)
+5. Refuse to start if your gamer login is still visible
+6. Create a hidden temporary Mac user
+7. Open Zoom logged out so you can sign in to the church account
+8. Wait until you quit Zoom
+9. Discard the church session files
+10. Restore your gamer Zoom files and Keychain login
+11. Delete the temporary user
 
-This is the replacement for v94's launchctl bsexec + $ZOOM_BIN path, which
-crashes with Abort trap 6 / _RegisterApplication because macOS will not give
-a temporary UID a visible window on the logged-in desktop.
+If Keychain Access asks for permission, click Allow. That is what hides the
+gamer saved login and later puts it back.
 
-Zoom's window process runs as you. The temporary user holds the isolated files
-and is removed when Zoom closes.
+This does not keep Zoom's process running as the temporary UID. macOS aborts
+that path. Your personal Zoom identity is hidden by parking the files and
+saved passwords that Zoom would otherwise auto-load from this Mac account.
 
 RESET SCRIPT
 
@@ -49,7 +54,8 @@ HOW TO USE EITHER SCRIPT
 1. Double-click the .command file
 2. Terminal will open
 3. Enter the Mac password if asked
-4. Let the script finish
+4. If Keychain asks, click Allow
+5. Let the script finish
 
 Run it from a normal desktop Terminal window. Do not start it with sudo, and
 do not run it over SSH.
@@ -61,13 +67,6 @@ Right-click the file, click Open, and confirm Open again.
 If needed:
 xattr -d com.apple.quarantine "ZoomTempUser_Launch.command"
 xattr -d com.apple.quarantine "ZoomReset_Universal_Mac.command"
-
-IF ZOOM CRASHES IMMEDIATELY
-
-A crash report with abort() in _RegisterApplication and Parent Process: bash
-means Zoom was started as a Terminal child or as another UID. Use the temp-user
-launcher above, or open Zoom from Applications. Do not run
-/Applications/zoom.us.app/Contents/MacOS/zoom.us from Terminal.
 
 WHAT THIS KIT DOES NOT DO
 

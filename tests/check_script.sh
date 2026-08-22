@@ -42,7 +42,11 @@ grep -q '/usr/bin/open' "$TEMP" || fail "temp-user launcher expected /usr/bin/op
 grep -q 'Creating hidden temporary user' "$TEMP" || fail "temp-user launcher must create a temp user"
 grep -q 'Deleting temporary user' "$TEMP" || fail "temp-user launcher must delete the temp user"
 grep -q 'Waiting for Zoom to quit' "$TEMP" || fail "temp-user launcher must wait for Zoom to quit"
-echo "PASS: temp-user launcher lifecycle"
+grep -q 'Parking personal Zoom files' "$TEMP" || fail "temp-user launcher must park personal Zoom files"
+grep -q 'Parking Zoom Keychain items' "$TEMP" || fail "temp-user launcher must park Zoom Keychain items"
+grep -q 'Group Containers' "$TEMP" || fail "temp-user launcher must hide Group Containers"
+grep -q 'Refusing to launch' "$TEMP" || fail "temp-user launcher must refuse to launch if isolation fails"
+echo "PASS: temp-user launcher lifecycle and identity isolation"
 
 if grep -q 'sandbox-exec' "$TEMP" && grep -Eq 'sandbox-exec .*zoom' "$TEMP"; then
   fail "temp-user launcher must not wrap Zoom in sandbox-exec"

@@ -1,21 +1,20 @@
 # 1132MAC — Ballroom Zoom kit for Mac
 
-Hard reset plus a temporary-user Zoom launcher. **Do not use if you have unsaved Zoom recordings or other Zoom data you need to keep.**
+Hard reset plus a guest Zoom session launcher. **Do not use if you have unsaved Zoom recordings you need to keep in the current session.**
 
 Download `BALLROOM_Mac_Universal_Reset_Kit.zip` or use the files in `kit/`.
 
-## Temporary user launch (window that actually appears)
+## Guest session (hide gamer Zoom from church)
 
-v94's `/usr/local/libexec/1132wtf-v94/root_launch_temp_zoom.sh` starts Zoom as a temp UID with `launchctl bsexec` and `$ZOOM_BIN`. On SIP-enabled macOS that aborts in `_RegisterApplication` (`Abort trap: 6`) and never shows a window.
+`kit/ZoomTempUser_Launch.command` parks **all** personal Zoom identity on this Mac account before Zoom opens:
 
-`kit/ZoomTempUser_Launch.command` keeps the lifecycle you asked for:
+- Zoom app support, caches, cookies, preferences, group containers
+- Saved Zoom logins in Keychain
+- Then opens Zoom logged out
 
-1. Creates a hidden temporary Mac user
-2. Opens Zoom in **your** desktop session through Launch Services (so a window can appear)
-3. Stores that session's Zoom files in the temp user's home
-4. When you quit Zoom, restores your previous Zoom files and deletes the temp user
+Sign in with the church account. When you quit Zoom, the parked gamer login is restored and the hidden temporary user is deleted.
 
-Zoom cannot display a window while its process runs as the temporary UID on this Mac. The temp user is the isolated file owner; the GUI process is the logged-in user.
+If it cannot fully hide the personal Zoom login, it **refuses to launch** rather than show your gamer name.
 
 ## Reset kit
 
