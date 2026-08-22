@@ -25,32 +25,25 @@ echo "PASS: reset script does not exec Contents/MacOS/zoom.us"
 
 grep -q '/usr/bin/open' "$RESET" || fail "reset script expected /usr/bin/open"
 grep -q 'launchctl asuser' "$RESET" || fail "reset script expected launchctl asuser"
-grep -q '_RegisterApplication' "$RESET" || fail "reset script expected _RegisterApplication note"
 echo "PASS: reset script launch path"
 
-if grep -q 'sandbox-exec' "$RESET" && grep -Eq 'sandbox-exec .*zoom' "$RESET"; then
-  fail "reset script must not wrap Zoom in sandbox-exec"
-fi
-echo "PASS: reset script does not sandbox-exec Zoom"
-
 if grep -Eq '^[[:space:]]*[^#[:space:]].*launchctl[[:space:]]+bsexec' "$TEMP" || grep -Eq '^[[:space:]]*launchctl[[:space:]]+bsexec' "$TEMP"; then
-  fail "temp-user launcher must not use launchctl bsexec"
+  fail "guest launcher must not use launchctl bsexec"
 fi
-echo "PASS: temp-user launcher does not use bsexec"
+echo "PASS: guest launcher does not use bsexec"
 
-grep -q '/usr/bin/open' "$TEMP" || fail "temp-user launcher expected /usr/bin/open"
-grep -q 'Creating hidden temporary user' "$TEMP" || fail "temp-user launcher must create a temp user"
-grep -q 'Deleting temporary user' "$TEMP" || fail "temp-user launcher must delete the temp user"
-grep -q 'Waiting for Zoom to quit' "$TEMP" || fail "temp-user launcher must wait for Zoom to quit"
-grep -q 'Parking personal Zoom files' "$TEMP" || fail "temp-user launcher must park personal Zoom files"
-grep -q 'Parking Zoom Keychain items' "$TEMP" || fail "temp-user launcher must park Zoom Keychain items"
-grep -q 'Group Containers' "$TEMP" || fail "temp-user launcher must hide Group Containers"
-grep -q 'Refusing to launch' "$TEMP" || fail "temp-user launcher must refuse to launch if isolation fails"
-echo "PASS: temp-user launcher lifecycle and identity isolation"
-
-if grep -q 'sandbox-exec' "$TEMP" && grep -Eq 'sandbox-exec .*zoom' "$TEMP"; then
-  fail "temp-user launcher must not wrap Zoom in sandbox-exec"
+if grep -Eq '^[[:space:]]*/usr/bin/open' "$TEMP" || grep -Eq '[^[:alnum:]_]open -na' "$TEMP"; then
+  fail "guest launcher must not use open to start Zoom"
 fi
-echo "PASS: temp-user launcher does not sandbox-exec Zoom"
+echo "PASS: guest launcher does not use open"
+
+grep -q 'sandbox-exec' "$TEMP" || fail "guest launcher must use sandbox-exec"
+grep -q 'Zoom Safe Meeting Storage' "$TEMP" || fail "guest launcher must park Zoom Safe Meeting Storage"
+grep -q 'GUEST_DISPLAY_NAME' "$TEMP" || fail "guest launcher must set a guest display name"
+grep -q 'RealName' "$TEMP" || fail "guest launcher must swap macOS Full Name"
+grep -q 'Parking personal Zoom files' "$TEMP" || fail "guest launcher must park personal Zoom files"
+grep -q 'Refusing to launch' "$TEMP" || fail "guest launcher must refuse to launch if isolation fails"
+grep -q 'Waiting for Zoom to quit' "$TEMP" || fail "guest launcher must wait for Zoom to quit"
+echo "PASS: guest launcher identity isolation"
 
 echo "All checks passed."

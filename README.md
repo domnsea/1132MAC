@@ -1,23 +1,27 @@
 # 1132MAC — Ballroom Zoom kit for Mac
 
-Hard reset plus a guest Zoom session launcher. **Do not use if you have unsaved Zoom recordings you need to keep in the current session.**
+Guest Zoom session plus a hard reset. **Do not use if you have unsaved Zoom recordings you need to keep in the current session.**
 
-Download `BALLROOM_Mac_Universal_Reset_Kit.zip` or use the files in `kit/`.
+Download `BALLROOM_Mac_Universal_Reset_Kit.zip`.
 
 ## Guest session (hide gamer Zoom from church)
 
-`kit/ZoomTempUser_Launch.command` parks **all** personal Zoom identity on this Mac account before Zoom opens:
+Use **ZoomTempUser_Launch.command**.
 
-- Zoom app support, caches, cookies, preferences, group containers
-- Saved Zoom logins in Keychain
-- Then opens Zoom logged out
+Earlier builds used `/usr/bin/open`. That always starts Zoom as this Mac account, so it reloads `zoomus.enc.db`, Keychain **Zoom Safe Meeting Storage**, and your macOS Full Name — which is why the gamer screen name kept appearing.
 
-Sign in with the church account. When you quit Zoom, the parked gamer login is restored and the hidden temporary user is deleted.
+This version:
 
-If it cannot fully hide the personal Zoom login, it **refuses to launch** rather than show your gamer name.
+1. Parks personal Zoom files (including `zoomus.enc.db`)
+2. Parks Zoom Keychain logins (click **Allow** if asked)
+3. Sets this session’s screen name to `Guest` (edit `GUEST_DISPLAY_NAME` at the top of the script)
+4. Starts Zoom with `sandbox-exec` on the Zoom binary from Terminal — not `open`
+5. Restores your gamer Zoom login and name when you quit Zoom
+
+If it cannot hide the personal identity, it will not launch.
 
 ## Reset kit
 
-`kit/ZoomReset_Universal_Mac.command` still does a hard wipe of leftover Zoom files.
+`ZoomReset_Universal_Mac.command` wipes leftover Zoom files.
 
-See `kit/README_MAC_UNIVERSAL.txt` for full instructions.
+See `kit/README_MAC_UNIVERSAL.txt`.
