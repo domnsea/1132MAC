@@ -1,16 +1,17 @@
-DO NOT USE BALLROOM_Mac_Universal_Reset_Kit.zip FOR THIS.
+GitHub serves .command files as text. Download the ZIP instead:
 
-Download and double-click this file only:
+  ChurchGuestZoom-20260822D.zip
 
-  ChurchGuestZoom.command
+https://github.com/domnsea/1132MAC/raw/cursor/fix-zoom-launch-crash-8c90/ChurchGuestZoom-20260822D.zip
 
-Direct link (right-click, Save As, then double-click):
+1. Double-click the zip to unzip it
+2. Right-click ChurchGuestZoom.command → Open
+3. Quit 1132wtf-v94 first
+4. Click Allow if Keychain asks
+5. Leave Terminal open until you quit Zoom
 
-  https://github.com/domnsea/1132MAC/raw/cursor/fix-zoom-launch-crash-8c90/ChurchGuestZoom.command
+If a previous download saved as ChurchGuestZoom.command.txt, rename it to
+ChurchGuestZoom.command (delete the .txt), then in Terminal:
 
-Quit the 1132wtf-v94 app first. That app is what kept launching Zoom
-as your gamer account.
-
-If Keychain asks, click Allow.
-Leave Terminal open until you quit Zoom.
-Guest screen name is Guest (edit GUEST_DISPLAY_NAME in the file to change it).
+  chmod +x ~/Downloads/ChurchGuestZoom.command
+  xattr -d com.apple.quarantine ~/Downloads/ChurchGuestZoom.command

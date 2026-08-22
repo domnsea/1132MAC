@@ -5,6 +5,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 RESET="$ROOT/kit/ZoomReset_Universal_Mac.command"
 TEMP="$ROOT/kit/ZoomTempUser_Launch.command"
+CHURCH="$ROOT/ChurchGuestZoom.command"
 
 fail() {
   echo "FAIL: $*" >&2
@@ -13,9 +14,11 @@ fail() {
 
 [[ -f "$RESET" ]] || fail "missing $RESET"
 [[ -f "$TEMP" ]] || fail "missing $TEMP"
+[[ -f "$CHURCH" ]] || fail "missing $CHURCH"
 
 bash -n "$RESET"
 bash -n "$TEMP"
+bash -n "$CHURCH"
 echo "PASS: bash syntax ok"
 
 if grep -Eq '^[[:space:]]*(exec[[:space:]]+)?("?\$\{?zoom_app\}?"?|/Applications/[^[:space:]]+)/Contents/MacOS/' "$RESET"; then
