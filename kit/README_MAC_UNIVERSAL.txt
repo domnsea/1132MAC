@@ -1,83 +1,81 @@
-BALLROOM MAC UNIVERSAL ZOOM RESET KIT
-
-WHAT THIS DOES
-
-This Mac script works on:
-- Intel Macs
-- Apple Silicon Macs
-- newer Zoom Workplace installs
-- older zoom.us installs
-
-It closes Zoom, deletes Zoom data, writes a Desktop log file, and then tries to relaunch Zoom through Launch Services.
-
-It is configured to delete:
-- local Zoom data in the current Mac user account
-- shared/system Zoom data if admin permission is granted
-- local Documents/Zoom recordings
-- shared Zoom recording folders when available
-
-IMPORTANT WARNING
-
-This can permanently delete local Zoom recordings.
-Do not run it if you need to keep those files.
+BALLROOM MAC UNIVERSAL ZOOM KIT
 
 FILES IN THIS KIT
 
+- ZoomTempUser_Launch.command
 - ZoomReset_Universal_Mac.command
 - BALLROOM_Mac_Universal_Zoom_Reset_Guide.pdf
 - README_MAC_UNIVERSAL.txt
 - LICENSE_MIT.txt
 
-HOW TO USE
+WHICH FILE TO USE
 
-1. Double-click ZoomReset_Universal_Mac.command
+Use ZoomTempUser_Launch.command if you want Zoom to open now, with a hidden
+temporary Mac user that is deleted when you quit Zoom.
+
+Use ZoomReset_Universal_Mac.command if you only want to wipe leftover Zoom
+files and then reopen Zoom in your own account.
+
+TEMPORARY USER LAUNCH
+
+Double-click ZoomTempUser_Launch.command from the Mac desktop (not SSH, not sudo).
+
+It will:
+
+1. Ask for your Mac password
+2. Create a hidden temporary user
+3. Point this session's Zoom files at that user's home
+4. Open Zoom through Launch Services in your desktop session
+5. Wait until you quit Zoom
+6. Restore your previous Zoom files
+7. Delete the temporary user
+
+This is the replacement for v94's launchctl bsexec + $ZOOM_BIN path, which
+crashes with Abort trap 6 / _RegisterApplication because macOS will not give
+a temporary UID a visible window on the logged-in desktop.
+
+Zoom's window process runs as you. The temporary user holds the isolated files
+and is removed when Zoom closes.
+
+RESET SCRIPT
+
+ZoomReset_Universal_Mac.command closes Zoom, deletes Zoom data, writes a
+Desktop log file, and then tries to relaunch Zoom through Launch Services.
+
+It can permanently delete local Zoom recordings.
+
+HOW TO USE EITHER SCRIPT
+
+1. Double-click the .command file
 2. Terminal will open
-3. Read the prompt and continue
-4. Enter the Mac password if asked
-5. Let the script finish
-6. Zoom should try to reopen automatically
+3. Enter the Mac password if asked
+4. Let the script finish
 
-Run it from a normal desktop Terminal window. Do not start it with sudo, and do not run it over SSH. The script will ask for a password itself when it needs admin rights.
+Run it from a normal desktop Terminal window. Do not start it with sudo, and
+do not run it over SSH.
 
 IF MACOS BLOCKS THE FILE
 
-Try this:
-- right-click the file
-- click Open
-- confirm Open again
+Right-click the file, click Open, and confirm Open again.
 
-If needed, remove quarantine in Terminal:
+If needed:
+xattr -d com.apple.quarantine "ZoomTempUser_Launch.command"
 xattr -d com.apple.quarantine "ZoomReset_Universal_Mac.command"
 
-IF ZOOM CRASHES IMMEDIATELY ON RELAUNCH
+IF ZOOM CRASHES IMMEDIATELY
 
-A macOS crash report for zoom.us with all of these points is a launch-path problem, not a Zoom data-corruption problem:
+A crash report with abort() in _RegisterApplication and Parent Process: bash
+means Zoom was started as a Terminal child or as another UID. Use the temp-user
+launcher above, or open Zoom from Applications. Do not run
+/Applications/zoom.us.app/Contents/MacOS/zoom.us from Terminal.
 
-- abort() called
-- Crashed thread in _RegisterApplication / GetCurrentProcess
-- +[NSApplication sharedApplication] during startup
-- Parent Process: bash
-- Process Role: Unspecified
-
-That abort happens when the Zoom app stub is started as a Terminal child, from SSH, from a background agent, as root, or inside sandbox-exec. AppKit then cannot get an application serial number from launchservicesd and calls abort().
-
-Do this instead:
-
-1. Open Zoom from Applications, Spotlight, or Finder
-2. Do not run /Applications/zoom.us.app/Contents/MacOS/zoom.us from Terminal
-3. Do not wrap Zoom in sandbox-exec
-4. Re-run this script from a desktop Terminal window without sudo
-5. If the Mac just woke from sleep, wait a few seconds, then open Zoom from Applications
-
-This kit relaunches Zoom with /usr/bin/open in the logged-in GUI user's session. It never executes the Contents/MacOS/zoom.us binary.
-
-WHAT IT DOES NOT DO
+WHAT THIS KIT DOES NOT DO
 
 - It does not repair internet problems
-- It does not fix Zoom account bans or server-side restrictions
+- It does not change Zoom account bans on Zoom's servers
 - It does not reinstall Zoom
-- It does not preserve local recordings
+- It does not patch /usr/local/libexec/1132wtf-v94 (run the .command instead)
 
 EXTRA NOTE
 
-A log file is saved to the Desktop so the user can see what was removed or skipped.
+A log file is saved to the Desktop.

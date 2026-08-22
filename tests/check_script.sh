@@ -1,49 +1,52 @@
 #!/usr/bin/env bash
-# Guardrails for the Zoom reset script. These checks exist because launching
-# Zoom by exec'ing Contents/MacOS/zoom.us crashes macOS AppKit in
-# _RegisterApplication (SIGABRT / abort()).
+# Guardrails for the Zoom kit scripts.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SCRIPT="$ROOT/kit/ZoomReset_Universal_Mac.command"
+RESET="$ROOT/kit/ZoomReset_Universal_Mac.command"
+TEMP="$ROOT/kit/ZoomTempUser_Launch.command"
 
-if [[ ! -f "$SCRIPT" ]]; then
-  echo "FAIL: missing $SCRIPT" >&2
+fail() {
+  echo "FAIL: $*" >&2
   exit 1
-fi
+}
 
-bash -n "$SCRIPT"
+[[ -f "$RESET" ]] || fail "missing $RESET"
+[[ -f "$TEMP" ]] || fail "missing $TEMP"
+
+bash -n "$RESET"
+bash -n "$TEMP"
 echo "PASS: bash syntax ok"
 
-if grep -Eq '^[[:space:]]*(exec[[:space:]]+)?("?\$\{?zoom_app\}?"?|/Applications/[^[:space:]]+)/Contents/MacOS/' "$SCRIPT"; then
-  echo "FAIL: script appears to exec Zoom's Mach-O stub directly" >&2
-  grep -n 'Contents/MacOS' "$SCRIPT" >&2 || true
-  exit 1
+if grep -Eq '^[[:space:]]*(exec[[:space:]]+)?("?\$\{?zoom_app\}?"?|/Applications/[^[:space:]]+)/Contents/MacOS/' "$RESET"; then
+  fail "reset script appears to exec Zoom's Mach-O stub directly"
 fi
-echo "PASS: does not exec Contents/MacOS/zoom.us"
+echo "PASS: reset script does not exec Contents/MacOS/zoom.us"
 
-if ! grep -q '/usr/bin/open' "$SCRIPT"; then
-  echo "FAIL: expected Launch Services launch via /usr/bin/open" >&2
-  exit 1
-fi
-echo "PASS: launches via /usr/bin/open"
+grep -q '/usr/bin/open' "$RESET" || fail "reset script expected /usr/bin/open"
+grep -q 'launchctl asuser' "$RESET" || fail "reset script expected launchctl asuser"
+grep -q '_RegisterApplication' "$RESET" || fail "reset script expected _RegisterApplication note"
+echo "PASS: reset script launch path"
 
-if ! grep -q 'launchctl asuser' "$SCRIPT"; then
-  echo "FAIL: expected launchctl asuser for root/console GUI session" >&2
-  exit 1
+if grep -q 'sandbox-exec' "$RESET" && grep -Eq 'sandbox-exec .*zoom' "$RESET"; then
+  fail "reset script must not wrap Zoom in sandbox-exec"
 fi
-echo "PASS: uses launchctl asuser when running as root"
+echo "PASS: reset script does not sandbox-exec Zoom"
 
-if ! grep -q '_RegisterApplication' "$SCRIPT"; then
-  echo "FAIL: expected troubleshooting text for the known abort crash" >&2
-  exit 1
+if grep -Eq '^[[:space:]]*[^#[:space:]].*launchctl[[:space:]]+bsexec' "$TEMP" || grep -Eq '^[[:space:]]*launchctl[[:space:]]+bsexec' "$TEMP"; then
+  fail "temp-user launcher must not use launchctl bsexec"
 fi
-echo "PASS: documents _RegisterApplication crash"
+echo "PASS: temp-user launcher does not use bsexec"
 
-if grep -q 'sandbox-exec' "$SCRIPT" && grep -Eq 'sandbox-exec .*zoom' "$SCRIPT"; then
-  echo "FAIL: script must not wrap Zoom in sandbox-exec" >&2
-  exit 1
+grep -q '/usr/bin/open' "$TEMP" || fail "temp-user launcher expected /usr/bin/open"
+grep -q 'Creating hidden temporary user' "$TEMP" || fail "temp-user launcher must create a temp user"
+grep -q 'Deleting temporary user' "$TEMP" || fail "temp-user launcher must delete the temp user"
+grep -q 'Waiting for Zoom to quit' "$TEMP" || fail "temp-user launcher must wait for Zoom to quit"
+echo "PASS: temp-user launcher lifecycle"
+
+if grep -q 'sandbox-exec' "$TEMP" && grep -Eq 'sandbox-exec .*zoom' "$TEMP"; then
+  fail "temp-user launcher must not wrap Zoom in sandbox-exec"
 fi
-echo "PASS: does not sandbox-exec Zoom"
+echo "PASS: temp-user launcher does not sandbox-exec Zoom"
 
 echo "All checks passed."
