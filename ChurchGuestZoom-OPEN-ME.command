@@ -564,15 +564,25 @@ restore_display_name() {
 }
 
 restore_leftover_parks() {
-  local dir
+  local dir oldest=""
   [[ -d "$HOME/.zwtf_identity_park" ]] || return 0
+  # RUN_ID is a timestamp. The oldest leftover is the original gamer identity.
+  # Restoring every leftover in a loop would discard the first restore.
   for dir in "$HOME/.zwtf_identity_park"/*; do
     [[ -d "$dir" ]] || continue
     [[ "$dir" == "$PARK_DIR" ]] && continue
-    log "Restoring leftover parked Zoom identity from $dir"
-    unpark_personal_zoom_files "$dir"
-    unpark_zoom_keychain "$dir"
-    restore_display_name_from "$dir"
+    if [[ -z "$oldest" || "$dir" < "$oldest" ]]; then
+      oldest="$dir"
+    fi
+  done
+  [[ -n "$oldest" ]] || return 0
+  log "Restoring oldest leftover parked Zoom identity from $oldest"
+  unpark_personal_zoom_files "$oldest"
+  unpark_zoom_keychain "$oldest"
+  restore_display_name_from "$oldest"
+  for dir in "$HOME/.zwtf_identity_park"/*; do
+    [[ -d "$dir" ]] || continue
+    [[ "$dir" == "$PARK_DIR" ]] && continue
     rm -rf "$dir" >>"$LOG_FILE" 2>&1 || true
   done
 }

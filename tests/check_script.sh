@@ -188,6 +188,7 @@ if "leaving it in place so it can be restored later" not in body:
     raise SystemExit("must skip delete when the secret cannot be read")
 PY
 grep -q 'restore_leftover_parks' "$TEMP" || fail "guest launcher must restore leftover parks on next run"
+grep -q 'oldest leftover parked Zoom identity' "$TEMP" || fail "leftover restore must use the oldest park only"
 pass "guest launcher identity isolation"
 
 # Proof of life is the first osascript, before set -u work.
