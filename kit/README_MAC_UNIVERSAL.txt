@@ -1,6 +1,6 @@
 BALLROOM MAC UNIVERSAL ZOOM KIT
 
-Church / guest session: download ChurchGuestZoom-20260823K.zip.
+Church / guest session: download ChurchGuestZoom-20260823L.zip.
 Right-click ChurchGuestZoom-OPEN-ME.command or ChurchGuestZoom.app, then Open.
 
 Do not use this reset zip for church. Do not open a raw .command from GitHub.
@@ -16,8 +16,9 @@ HOW TO USE
 
 WHY EARLIER BUILDS DID NOTHING
 
-The .app was a shell script, so macOS ignored the click. Build K has a real
+The .app was a shell script, so macOS ignored the click. Build L has a real
 Mac binary plus OPEN-ME.command. Keychain Deny no longer aborts guest Zoom.
+Build K hid every microphone (including VB-Cable) via sandbox-exec.
 
 WHY THE GAMER NAME KEPT SHOWING
 
@@ -25,7 +26,8 @@ Zoom was being started with the normal Open command. That always reloads this
 Mac account's Zoom profile, the Zoom Safe Meeting Storage keychain item, and
 your macOS Full Name.
 
-This launcher parks those, then starts Zoom with sandbox-exec -- not open.
+This launcher parks those, then starts the Zoom binary directly -- not open
+and not sandbox-exec (sandbox-exec made Zoom show no microphones).
 
 RESET SCRIPT
 

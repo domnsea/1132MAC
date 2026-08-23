@@ -1,7 +1,7 @@
-CHURCH GUEST ZOOM — BUILD 2026-08-23-K
+CHURCH GUEST ZOOM — BUILD 2026-08-23-L
 
-Older zips did not open: the .app was a shell script, and macOS
-ignored the click. This zip has a real Mac binary plus a .command.
+Throw away zip K. It hid every microphone (including VB-Cable)
+because Zoom ran inside sandbox-exec.
 
 HOW TO RUN (pick one)
 
@@ -15,6 +15,9 @@ If macOS says it is from an unidentified developer: Open anyway.
 
 Quit 1132wtf-v94 first. Click Allow if Keychain asks.
 If Keychain says no, guest Zoom still starts.
+
+After Zoom opens: Settings → Audio → Microphone → VB-Cable
+(or CABLE Output). If macOS asks to allow Microphone for Zoom, click OK.
 
 Log: Desktop/ChurchGuestZoom-log.txt
 

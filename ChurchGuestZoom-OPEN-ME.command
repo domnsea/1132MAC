@@ -1,5 +1,5 @@
 #!/bin/bash
-# ChurchGuestZoom — BUILD 2026-08-23-K
+# ChurchGuestZoom — BUILD 2026-08-23-L
 # Double-clickable guest Zoom session that cannot load the personal/gamer login.
 #
 # Hang / "did nothing" bugs removed vs build E:
@@ -13,8 +13,11 @@
 #   - Wait-for-quit watches zoom.us only, not leftover CptHost helpers
 #   - Keychain park is best-effort: a Deny/timeout must not abort guest Zoom
 #
-# Launch path: sandbox-exec on the Zoom binary as THIS Aqua user. Not open.
+# Launch path: exec the Zoom binary as THIS Aqua user. Not open.
 # Not launchctl bsexec as another UID (that crashes in _RegisterApplication).
+# Not sandbox-exec: seatbelt + a fake HOME made Zoom report no microphones
+# (VB-Cable and the built-in mic both disappeared). Parked identity is
+# chmod 000 so Zoom cannot read the Keychain backup without a sandbox.
 
 export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin"
 
@@ -32,6 +35,7 @@ display dialog "Church Guest Zoom is starting.
 
 This session uses a random 6-digit Zoom name.
 Your gamer Zoom comes back when you quit Zoom.
+VB-Cable / microphone should appear in Zoom Audio.
 
 If nothing else appears, look on the Desktop for ChurchGuestZoom-log.txt" buttons {"Continue"} default button 1 with title "Church Guest Zoom" giving up after 120
 OSA
@@ -39,7 +43,7 @@ OSA
 set -u -o pipefail
 
 SCRIPT_NAME="ChurchGuestZoom"
-SCRIPT_VERSION="2026-08-23-K"
+SCRIPT_VERSION="2026-08-23-L"
 GUEST_DISPLAY_NAME=""
 LOG_FILE="$HOME/Desktop/ChurchGuestZoom-log.txt"
 RUN_ID="$(date +%Y%m%d%H%M%S)"
@@ -407,6 +411,7 @@ Click Continue." "Continue" 20
 unpark_zoom_keychain() {
   local park="${1:-}"
   local i label acct svce pass
+  local -a cmd
   if [[ -z "$park" ]]; then
     [[ "$KEYCHAIN_PARKED" -eq 1 ]] || return 0
     park="$PARK_DIR"
@@ -421,14 +426,23 @@ unpark_zoom_keychain() {
     if [[ -f "$park/kc/$i.pass" ]]; then
       pass="$(cat "$park/kc/$i.pass")"
     fi
-    if [[ -n "$pass" ]]; then
-      cmd=(/usr/bin/security add-generic-password -U -l "$label" -w "$pass")
-      [[ -n "$acct" ]] && cmd+=(-a "$acct")
-      [[ -n "$svce" ]] && cmd+=(-s "$svce")
-      run_with_timeout 8 "${cmd[@]}" >/dev/null 2>&1 || warn "Could not restore Keychain item: $label"
+    if [[ -z "$pass" ]]; then
+      warn "Keychain backup missing for $label; keeping park dir."
+      return 1
+    fi
+    cmd=(/usr/bin/security add-generic-password -U -l "$label" -w "$pass")
+    [[ -n "$acct" ]] && cmd+=(-a "$acct")
+    [[ -n "$svce" ]] && cmd+=(-s "$svce")
+    if run_with_timeout 8 "${cmd[@]}" >/dev/null 2>&1; then
+      rm -f "$park/kc/$i.pass"
+      log "Restored Keychain item: $label"
+    else
+      warn "Could not restore Keychain item: $label; keeping park dir."
+      return 1
     fi
     i=$((i + 1))
   done
+  return 0
 }
 
 keychain_zoom_still_present() {
@@ -512,11 +526,85 @@ capture_computername_before_change() {
   printf '%s\n' "$ORIGINAL_COMPUTERNAME" > "$PARK_DIR/original_computername.txt"
 }
 
-seed_guest_zoom_prefs() {
-  local data="$GUEST_HOME/Library/Application Support/zoom.us/data"
-  mkdir -p "$data" "$GUEST_HOME/Library/Preferences" "$GUEST_HOME/tmp"
-  log "Writing guest Zoom name $GUEST_DISPLAY_NAME into a fresh profile (no prior meeting)."
-  local plist="$GUEST_HOME/Library/Preferences/us.zoom.xos"
+# Owner can chmod a 000 path back; Zoom will not. This replaces sandbox-exec
+# so CoreAudio still sees VB-Cable and the built-in mic.
+unlock_park_dir() {
+  local dir="$1"
+  [[ -n "$dir" && -e "$dir" ]] || return 0
+  chmod u+rwx "$dir" 2>/dev/null || true
+  if [[ -d "$dir" ]]; then
+    find "$dir" -exec chmod u+rwX {} + 2>/dev/null || true
+  fi
+  chmod 700 "$dir" 2>/dev/null || true
+  [[ -d "$dir/kc" ]] && chmod 700 "$dir/kc" 2>/dev/null || true
+  return 0
+}
+
+lock_park_dir() {
+  local dir="$1"
+  [[ -d "$dir" ]] || return 1
+  find "$dir" -type f -exec chmod a-rwx {} + 2>/dev/null || true
+  find "$dir" -type d -mindepth 1 -exec chmod a-rwx {} + 2>/dev/null || true
+  chmod a-rwx "$dir" 2>/dev/null || true
+  log "Locked parked identity at $dir so Zoom can run without sandbox-exec."
+}
+
+refresh_coreaudio() {
+  log "Restarting CoreAudio so microphones (including VB-Cable) reappear..."
+  killall coreaudiod >/dev/null 2>&1 || true
+  sleep 2
+}
+
+detect_vb_cable_name() {
+  local name=""
+  name="$(system_profiler SPAudioDataType 2>/dev/null | awk '
+    /^[[:space:]]+[^:]+:$/ {
+      n=$0
+      sub(/^[[:space:]]+/, "", n)
+      sub(/:$/, "", n)
+    }
+    tolower(n) ~ /vb-cable|vbcable|vb-audio|cable output|cable input/ {
+      if ($0 ~ /Input Channels/) { print n; exit }
+    }
+  ')"
+  if [[ -z "$name" ]]; then
+    name="$(system_profiler SPAudioDataType 2>/dev/null | awk '
+      {
+        line=$0
+        low=tolower($0)
+      }
+      low ~ /vb-cable|vbcable|vb-audio|cable output/ {
+        n=line
+        sub(/^[[:space:]]+/, "", n)
+        sub(/:$/, "", n)
+        print n
+        exit
+      }
+    ')"
+  fi
+  printf '%s' "$name"
+}
+
+log_audio_devices() {
+  log "Audio plug-ins in /Library/Audio/Plug-Ins/HAL:"
+  ls -1 /Library/Audio/Plug-Ins/HAL 2>/dev/null | while IFS= read -r p; do
+    log "  HAL: $p"
+  done
+  log "Audio devices from system_profiler:"
+  system_profiler SPAudioDataType 2>/dev/null | awk '
+    /^[[:space:]]+[^:]+:$/ { n=$0; sub(/^[[:space:]]+/, "", n); sub(/:$/, "", n) }
+    /Input Channels/ { print "  input: " n }
+  ' | while IFS= read -r line; do
+    [[ -n "$line" ]] && log "$line"
+  done
+}
+
+seed_zoom_prefs_into() {
+  local root="$1"
+  local data="$root/Library/Application Support/zoom.us/data"
+  local plist="$root/Library/Preferences/us.zoom.xos"
+  local mic_name="${2:-}"
+  mkdir -p "$data" "$root/Library/Preferences" "$root/tmp"
   defaults write "$plist" ZoomUserName -string "$GUEST_DISPLAY_NAME"
   defaults write "$plist" UserName -string "$GUEST_DISPLAY_NAME"
   defaults write "$plist" DisplayName -string "$GUEST_DISPLAY_NAME"
@@ -526,7 +614,30 @@ seed_guest_zoom_prefs() {
   defaults write "$plist" AutoLogin -bool false
   defaults write "$plist" rememberMe -bool false
   defaults write "$plist" AutoSignIn -bool false
+  # Computer audio must auto-join or Zoom says there is nothing to connect to.
+  defaults write "$plist" zAutoJoinVoip -bool true
+  defaults write "$plist" SetUseSystemDefaultMicForVOIP -bool true
+  defaults write "$plist" SetUseSystemDefaultSpeakerForVOIP -bool true
+  defaults write "$plist" AudioAutoAdjust -bool true
+  defaults write "$plist" EnableOriginalSound -bool true
+  if [[ -n "$mic_name" ]]; then
+    defaults write "$plist" ZoomChat.Audio.MicName -string "$mic_name"
+  fi
   printf '%s\n' "[General]" "nRememberAccount=0" > "$data/Zoom.us.ini"
+}
+
+seed_guest_zoom_prefs() {
+  local mic_name=""
+  mic_name="$(detect_vb_cable_name || true)"
+  log "Writing guest Zoom name $GUEST_DISPLAY_NAME into a fresh profile (no prior meeting)."
+  if [[ -n "$mic_name" ]]; then
+    log "Preferring microphone: $mic_name"
+  else
+    log "No VB-Cable device name found yet; Zoom will use the system default mic after CoreAudio refresh."
+  fi
+  # Real home: Cocoa Zoom uses NSHomeDirectory(), not a fake HOME.
+  seed_zoom_prefs_into "$HOME" "$mic_name"
+  seed_zoom_prefs_into "$GUEST_HOME" "$mic_name"
   if [[ -n "$CONSOLE_USER" ]]; then
     killall -u "$CONSOLE_USER" cfprefsd >/dev/null 2>&1 || true
   fi
@@ -577,37 +688,32 @@ restore_leftover_parks() {
   done
   [[ -n "$oldest" ]] || return 0
   log "Restoring oldest leftover parked Zoom identity from $oldest"
+  unlock_park_dir "$oldest" || {
+    warn "Could not unlock leftover park $oldest; leaving it in place."
+    return 1
+  }
   unpark_personal_zoom_files "$oldest"
-  unpark_zoom_keychain "$oldest"
+  if ! unpark_zoom_keychain "$oldest"; then
+    warn "Leftover Keychain restore failed. Keeping $oldest"
+    lock_park_dir "$oldest"
+    return 1
+  fi
   restore_display_name_from "$oldest"
-  for dir in "$HOME/.zwtf_identity_park"/*; do
-    [[ -d "$dir" ]] || continue
-    [[ "$dir" == "$PARK_DIR" ]] && continue
-    rm -rf "$dir" >>"$LOG_FILE" 2>&1 || true
-  done
-}
-
-write_sandbox_profile() {
-  cat > "$PARK_DIR/zoom.sb" <<EOF
-(version 1)
-(allow default)
-(allow device-camera)
-(allow device-microphone)
-(allow mach-lookup)
-(deny file-read* file-write*
-  (subpath "$HOME/.zwtf_identity_park")
-)
-EOF
+  rm -rf "$oldest" >>"$LOG_FILE" 2>&1 || true
+  log "Removed leftover park after restore: $oldest"
 }
 
 launch_guest_zoom() {
+  local zoom_dir
   mkdir -p "$GUEST_HOME/tmp" "$GUEST_HOME/Library"
-  write_sandbox_profile
-  log "Starting Zoom with sandbox-exec (not open). Guest screen name: $GUEST_DISPLAY_NAME"
+  lock_park_dir "$PARK_DIR"
+  log_audio_devices
+  zoom_dir="$(dirname "$ZOOM_BIN")"
+  log "Starting Zoom binary (not open, not sandbox-exec). Guest screen name: $GUEST_DISPLAY_NAME"
   (
-    export HOME="$GUEST_HOME"
-    export TMPDIR="$GUEST_HOME/tmp"
-    exec /usr/bin/sandbox-exec -f "$PARK_DIR/zoom.sb" "$ZOOM_BIN"
+    cd "$zoom_dir" || exit 1
+    unset TMPDIR
+    exec "$ZOOM_BIN"
   ) >>"$LOG_FILE" 2>&1 &
   SANDBOX_PID=$!
   log "Zoom guest process pid $SANDBOX_PID"
@@ -622,7 +728,7 @@ wait_for_zoom_start() {
       return 0
     fi
     if [[ -n "$SANDBOX_PID" ]] && ! kill -0 "$SANDBOX_PID" 2>/dev/null; then
-      log "sandbox-exec exited before Zoom appeared; not launching Zoom unsandboxed (Keychain backup is in the park dir)."
+      log "Zoom process exited before a window appeared."
       break
     fi
   done
@@ -636,10 +742,13 @@ wait_for_zoom_quit() {
 Your name this session:
 $GUEST_DISPLAY_NAME
 
+Microphone: Zoom → Settings → Audio.
+Pick VB-Cable (or CABLE Output). If macOS asks to allow Microphone, click OK.
+
 Leave Church Guest Zoom in the Dock until you quit Zoom.
 When Zoom quits, your gamer login is restored.
 
-If Zoom never appeared, click OK and check the Desktop log." "OK" 25
+If Zoom never appeared, click OK and check the Desktop log." "OK" 30
   local waited=0
   while zoom_is_running; do
     sleep 2
@@ -669,9 +778,15 @@ cleanup() {
     log "Parked identity remains in $PARK_DIR. Desktop backup: $NAME_BACKUP_FILE. Restore will retry on exit."
     return 1
   fi
+  unlock_park_dir "$PARK_DIR"
   restore_display_name
   unpark_personal_zoom_files
-  unpark_zoom_keychain
+  if ! unpark_zoom_keychain; then
+    warn "Keychain restore failed. Keeping $PARK_DIR so the next launch can retry. Do not delete this folder."
+    lock_park_dir "$PARK_DIR"
+    CLEANED_UP=0
+    return 1
+  fi
   remove_park_dir
   CLEANED_UP=1
   log "Cleanup finished. Personal Zoom identity restored."
@@ -708,7 +823,8 @@ Your Zoom name this session:
 $GUEST_DISPLAY_NAME
 
 Stuck End Meeting windows are force-closed.
-Personal Zoom is parked until you quit Zoom." "Continue" 40
+Personal Zoom is parked until you quit Zoom.
+VB-Cable and other mics stay visible in Zoom Audio." "Continue" 40
 
   trap 'cleanup' EXIT INT TERM
 
@@ -717,6 +833,7 @@ Personal Zoom is parked until you quit Zoom." "Continue" 40
   log "Zoom binary: $ZOOM_BIN"
 
   stop_zoom || die "Could not quit Zoom. Quit 1132wtf-v94 and Zoom, then run again."
+  refresh_coreaudio
   restore_leftover_parks
   mkdir -p "$PARK_DIR/items" "$PARK_DIR/kc"
   chmod 700 "$PARK_DIR"

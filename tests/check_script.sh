@@ -10,7 +10,7 @@ APP="$ROOT/ChurchGuestZoom.app/Contents/MacOS/ChurchGuestZoom"
 APP_SCRIPT="$ROOT/ChurchGuestZoom.app/Contents/Resources/launch.command"
 OPEN_CMD="$ROOT/ChurchGuestZoom-OPEN-ME.command"
 PLIST="$ROOT/ChurchGuestZoom.app/Contents/Info.plist"
-ZIP="$ROOT/ChurchGuestZoom-20260823K.zip"
+ZIP="$ROOT/ChurchGuestZoom-20260823L.zip"
 
 fail() {
   echo "FAIL: $*" >&2
@@ -116,12 +116,16 @@ grep -q 'run_with_timeout' "$TEMP" || fail "guest launcher must time-bound Keych
 grep -q 'giving up after' "$TEMP" || fail "guest launcher dialogs must give up so they cannot hang forever"
 grep -q 'killall -9' "$TEMP" || fail "guest launcher must force-kill Zoom"
 grep -q 'pgrep -x "zoom.us"' "$TEMP" || fail "wait-for-quit must watch zoom.us only, not CptHost"
-if grep -F 'exec "$ZOOM_BIN"' "$TEMP"; then
-  fail "guest launcher must not exec Zoom unsandboxed (Keychain backup lives in the park dir)"
+if noncomment "$TEMP" | grep -Eq '/usr/bin/sandbox-exec|sandbox-exec -f'; then
+  fail "guest launcher must not sandbox-exec Zoom (hides VB-Cable and every other mic)"
 fi
-pass "guest launcher unhang guards"
+grep -F 'exec "$ZOOM_BIN"' "$TEMP" >/dev/null || fail "guest launcher must exec the Zoom binary"
+grep -q 'lock_park_dir' "$TEMP" || fail "guest launcher must lock the park dir before Zoom"
+grep -q 'chmod a-rwx' "$TEMP" || fail "park lock must chmod a-rwx so Zoom cannot read Keychain backups"
+grep -q 'killall coreaudiod' "$TEMP" || fail "guest launcher must restart CoreAudio so mics reappear"
+grep -q 'zAutoJoinVoip' "$TEMP" || fail "guest launcher must auto-join computer audio"
+pass "guest launcher unhang guards and microphone path"
 
-grep -q 'sandbox-exec' "$TEMP" || fail "guest launcher must use sandbox-exec"
 grep -q 'Zoom Safe Meeting Storage' "$TEMP" || fail "guest launcher must park Zoom Safe Meeting Storage"
 grep -q 'generate_guest_name' "$TEMP" || fail "guest launcher must generate a random 6-digit name"
 grep -q 'zoommeeting.enc.db' "$TEMP" || fail "guest launcher must clear stuck meeting state"
@@ -189,6 +193,43 @@ if "leaving it in place so it can be restored later" not in body:
 PY
 grep -q 'restore_leftover_parks' "$TEMP" || fail "guest launcher must restore leftover parks on next run"
 grep -q 'oldest leftover parked Zoom identity' "$TEMP" || fail "leftover restore must use the oldest park only"
+python3 - "$TEMP" <<'PY' || fail "leftover restore must not delete every leftover park"
+import sys
+from pathlib import Path
+text = Path(sys.argv[1]).read_text()
+start = text.find("restore_leftover_parks()")
+end = text.find("\nlaunch_guest_zoom()")
+if start < 0 or end < 0:
+    raise SystemExit("could not find restore_leftover_parks")
+body = text[start:end]
+if 'for dir in "$HOME/.zwtf_identity_park"/*' in body and 'rm -rf "$dir"' in body:
+    raise SystemExit("leftover restore still deletes every leftover park")
+if "Removed leftover park after restore" not in body:
+    raise SystemExit("leftover restore must only remove the park it restored")
+if "Leftover Keychain restore failed" not in body:
+    raise SystemExit("leftover restore must keep a park when Keychain restore fails")
+PY
+python3 - "$TEMP" <<'PY' || fail "cleanup must not delete the park if Keychain restore fails"
+import sys
+from pathlib import Path
+text = Path(sys.argv[1]).read_text()
+start = text.find("\ncleanup()")
+end = text.find("\nmain()")
+if start < 0 or end < 0:
+    raise SystemExit("could not find cleanup")
+body = text[start:end]
+fail_at = body.find("if ! unpark_zoom_keychain")
+rm_at = body.find("remove_park_dir")
+if fail_at < 0 or rm_at < 0:
+    raise SystemExit("cleanup missing unpark_zoom_keychain guard or remove_park_dir")
+if fail_at > rm_at:
+    raise SystemExit("cleanup removes park before checking Keychain restore")
+chunk = body[fail_at:rm_at]
+if "return 1" not in chunk:
+    raise SystemExit("cleanup must return before remove_park_dir when Keychain restore fails")
+if "CLEANED_UP=1" in chunk:
+    raise SystemExit("cleanup must not mark done while Keychain backup still exists")
+PY
 pass "guest launcher identity isolation"
 
 # Proof of life is the first osascript, before set -u work.
@@ -243,12 +284,14 @@ with zipfile.ZipFile(zpath) as zf:
     if cmdmode & 0o111 == 0:
         raise SystemExit("OPEN-ME.command in zip is not executable (mode=%o)" % cmdmode)
     data = zf.read("ChurchGuestZoom.app/Contents/Resources/launch.command")
-    if b"2026-08-23-K" not in data:
-        raise SystemExit("zip launch.command is not build K")
+    if b"2026-08-23-L" not in data:
+        raise SystemExit("zip launch.command is not build L")
     if b"python3" in b"\n".join(line for line in data.splitlines() if not line.lstrip().startswith(b"#")):
         raise SystemExit("zip launcher still calls python3")
+    if b"/usr/bin/sandbox-exec" in data or b"sandbox-exec -f" in data:
+        raise SystemExit("zip launcher still uses sandbox-exec")
 print("zip ok")
 PY
-pass "zip ChurchGuestZoom-20260823K.zip contains Mach-O app and OPEN-ME.command"
+pass "zip ChurchGuestZoom-20260823L.zip contains Mach-O app and OPEN-ME.command"
 
 echo "All checks passed."
