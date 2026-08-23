@@ -661,7 +661,7 @@ seed_guest_zoom_prefs() {
 
 restore_display_name_from() {
   local park="$1"
-  local name=""
+  local name="" current="" expected_cn="" current_cn=""
   [[ -f "$park/original_realname.txt" ]] || return 0
   name="$(cat "$park/original_realname.txt")"
   [[ -n "$name" ]] || return 0
@@ -678,15 +678,28 @@ EOF
   fi
   printf 'dscacheutil -flushcache || true\n' >> "$park/restore_name.sh"
   chmod 700 "$park/restore_name.sh"
-  run_admin "$park/restore_name.sh" >>"$LOG_FILE" 2>&1 \
-    || warn "Could not restore Full Name. Backup is on your Desktop: $NAME_BACKUP_FILE"
-  if dscl . -read "/Users/${CONSOLE_USER}" RealName 2>/dev/null | grep -F -q -e "$name"; then
-    rm -f "$NAME_BACKUP_FILE" >>"$LOG_FILE" 2>&1 || true
+  if ! run_admin "$park/restore_name.sh" >>"$LOG_FILE" 2>&1; then
+    warn "Could not restore Full Name. Backup is on your Desktop: $NAME_BACKUP_FILE"
+    return 1
   fi
+  current="$(read_realname)"
+  if [[ "$current" != "$name" ]]; then
+    warn "Full Name is still not restored. Backup is on your Desktop: $NAME_BACKUP_FILE"
+    return 1
+  fi
+  if [[ -f "$park/original_computername.txt" ]]; then
+    expected_cn="$(cat "$park/original_computername.txt")"
+    current_cn="$(scutil --get ComputerName 2>/dev/null || true)"
+    if [[ -n "$expected_cn" && "$current_cn" != "$expected_cn" ]]; then
+      warn "ComputerName is still not restored."
+      return 1
+    fi
+  fi
+  rm -f "$NAME_BACKUP_FILE" >>"$LOG_FILE" 2>&1 || true
+  return 0
 }
 
 restore_display_name() {
-  [[ "$REALNAME_SAVED" -eq 1 ]] || return 0
   restore_display_name_from "$PARK_DIR"
 }
 
@@ -718,7 +731,11 @@ restore_leftover_parks() {
     lock_park_dir "$oldest"
     return 1
   fi
-  restore_display_name_from "$oldest"
+  if ! restore_display_name_from "$oldest"; then
+    warn "Leftover display-name restore failed. Keeping $oldest"
+    lock_park_dir "$oldest"
+    return 1
+  fi
   rm -rf "$oldest" >>"$LOG_FILE" 2>&1 || true
   log "Removed leftover park after restore: $oldest"
 }
@@ -799,7 +816,12 @@ cleanup() {
     return 1
   fi
   unlock_park_dir "$PARK_DIR"
-  restore_display_name
+  if ! restore_display_name; then
+    warn "Display-name restore failed. Keeping $PARK_DIR so the next launch can retry. Do not delete this folder."
+    lock_park_dir "$PARK_DIR"
+    CLEANED_UP=0
+    return 1
+  fi
   if ! unpark_personal_zoom_files; then
     warn "File restore failed. Keeping $PARK_DIR so the next launch can retry. Do not delete this folder."
     lock_park_dir "$PARK_DIR"
@@ -859,7 +881,14 @@ VB-Cable and other mics stay visible in Zoom Audio." "Continue" 40
 
   stop_zoom || die "Could not quit Zoom. Quit 1132wtf-v94 and Zoom, then run again."
   refresh_coreaudio
-  restore_leftover_parks
+  restore_leftover_parks || die "Could not restore the previous Zoom identity.
+
+Enter your Mac password if asked, and click Allow if Keychain asks.
+Then run Church Guest Zoom again.
+
+Do not start another guest session until this restore works.
+Desktop name backup: $NAME_BACKUP_FILE
+Log: $LOG_FILE"
   mkdir -p "$PARK_DIR/items" "$PARK_DIR/kc"
   chmod 700 "$PARK_DIR"
   capture_computername_before_change

@@ -207,7 +207,7 @@ if "keeping park dir" not in body:
 if "Keychain already has" not in body:
     raise SystemExit("unpark_zoom_keychain must skip items already restored on retry")
 PY
-grep -q 'restore_leftover_parks' "$TEMP" || fail "guest launcher must restore leftover parks on next run"
+grep -q 'restore_leftover_parks || die' "$TEMP" || fail "guest launcher must abort if leftover restore fails"
 grep -q 'oldest leftover parked Zoom identity' "$TEMP" || fail "leftover restore must use the oldest park only"
 python3 - "$TEMP" <<'PY' || fail "leftover restore must not delete every leftover park"
 import sys
@@ -228,6 +228,10 @@ if "Leftover file restore failed" not in body:
     raise SystemExit("leftover restore must keep a park when file restore fails")
 if "if ! unpark_personal_zoom_files" not in body:
     raise SystemExit("leftover restore must check file restore before deleting the park")
+if "if ! restore_display_name_from" not in body:
+    raise SystemExit("leftover restore must check display-name restore before deleting the park")
+if "Leftover display-name restore failed" not in body:
+    raise SystemExit("leftover restore must keep a park when display-name restore fails")
 PY
 python3 - "$TEMP" <<'PY' || fail "cleanup must not delete the park if file or Keychain restore fails"
 import sys
@@ -238,16 +242,17 @@ end = text.find("\nmain()")
 if start < 0 or end < 0:
     raise SystemExit("could not find cleanup")
 body = text[start:end]
-fail_at = body.find("if ! unpark_personal_zoom_files")
+fail_at = body.find("if ! restore_display_name")
+file_at = body.find("if ! unpark_personal_zoom_files")
 kc_at = body.find("if ! unpark_zoom_keychain")
 rm_at = body.find("remove_park_dir")
-if fail_at < 0 or kc_at < 0 or rm_at < 0:
+if fail_at < 0 or file_at < 0 or kc_at < 0 or rm_at < 0:
     raise SystemExit("cleanup missing restore guards or remove_park_dir")
-if fail_at > rm_at or kc_at > rm_at:
+if min(fail_at, file_at, kc_at) > rm_at:
     raise SystemExit("cleanup removes park before checking restore")
-chunk = body[fail_at:rm_at]
-if chunk.count("return 1") < 2:
-    raise SystemExit("cleanup must return before remove_park_dir when file or Keychain restore fails")
+chunk = body[min(fail_at, file_at, kc_at):rm_at]
+if chunk.count("return 1") < 3:
+    raise SystemExit("cleanup must return before remove_park_dir when name, file, or Keychain restore fails")
 if "CLEANED_UP=1" in chunk:
     raise SystemExit("cleanup must not mark done while Keychain backup still exists")
 PY
