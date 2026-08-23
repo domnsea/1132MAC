@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# ZoomTempUser_Launch.command
+# ChurchGuestZoom.command
+# BUILD 2026-08-23-E — random 6-digit Zoom name; ends stuck meetings
 # Guest Zoom session on THIS Mac account that cannot see the personal/gamer
 # Zoom login or screen name.
 #
@@ -17,15 +18,12 @@
 #      (same UID + Aqua, so a window can appear; personal files denied)
 #   6. On quit, restores Full Name, files, and Keychain
 #
-# Edit the guest screen name here if you want something other than Guest:
-
-GUEST_DISPLAY_NAME="Guest"
-
 set -u -o pipefail
 
-SCRIPT_NAME="ZoomTempUser_Launch.command"
-SCRIPT_VERSION="2.0.0"
-LOG_FILE="$HOME/Desktop/ZoomTempUser_$(date +%Y%m%d_%H%M%S).log"
+SCRIPT_NAME="ChurchGuestZoom.command"
+SCRIPT_VERSION="2026-08-23-E"
+GUEST_DISPLAY_NAME=""
+LOG_FILE="$HOME/Desktop/ChurchGuestZoom_$(date +%Y%m%d_%H%M%S).log"
 RUN_ID="$(date +%Y%m%d%H%M%S)"
 PARK_DIR="$HOME/.zwtf_identity_park/${RUN_ID}"
 NAME_BACKUP_FILE="$HOME/Desktop/ZWTF_NAME_BACKUP.txt"
@@ -35,7 +33,9 @@ SUDO_KEEPALIVE_PID=""
 CLEANED_UP=0
 KEYCHAIN_PARKED=0
 REALNAME_SAVED=0
+COMPUTERNAME_SAVED=0
 ORIGINAL_REALNAME=""
+ORIGINAL_COMPUTERNAME=""
 CONSOLE_USER=""
 ZOOM_BIN=""
 SANDBOX_PID=""
@@ -57,6 +57,13 @@ die() {
   echo "$*"
   echo "Log: $LOG_FILE"
   exit 1
+}
+
+generate_guest_name() {
+  GUEST_DISPLAY_NAME="$(python3 -c 'import random; print("%06d" % random.randint(100000, 999999))' 2>/dev/null || true)"
+  if [[ ${#GUEST_DISPLAY_NAME} -ne 6 ]]; then
+    GUEST_DISPLAY_NAME="$(od -An -N3 -tu4 /dev/urandom | awk '{printf "%06d", 100000+($1%900000)}')"
+  fi
 }
 
 check_platform() {
@@ -130,15 +137,15 @@ zoom_is_running() {
 }
 
 stop_zoom() {
-  log "Stopping Zoom..."
+  log "Stopping Zoom, including any stuck End Meeting window..."
   run_quiet osascript -e 'tell application "zoom.us" to quit' || true
   run_quiet osascript -e 'tell application "Zoom Workplace" to quit' || true
   run_quiet osascript -e 'tell application "Zoom" to quit' || true
-  run_quiet killall "zoom.us" || true
-  run_quiet killall "CptHost" || true
-  run_quiet killall "caphost" || true
-  run_quiet killall "zAutoUpdate" || true
-  run_quiet killall "ZoomOpener" || true
+  local proc
+  for proc in zoom.us CptHost caphost aomhost aomhost64 zAutoUpdate ZoomOpener zCrashReport zTscoder ZoomUpdater; do
+    run_quiet killall "$proc" || true
+  done
+  run_quiet pkill -f '/Applications/zoom.us.app/' || true
   local i
   for i in $(seq 1 20); do
     if ! zoom_is_running; then
@@ -149,6 +156,7 @@ stop_zoom() {
   done
   run_quiet killall -9 "zoom.us" || true
   run_quiet killall -9 "CptHost" || true
+  run_quiet pkill -9 -f '/Applications/zoom.us.app/' || true
   sleep 1
 }
 
@@ -176,6 +184,7 @@ list_zoom_identity_paths() {
   done
   [[ -e "$base/.zoomus" ]] && printf '%s\n' "$base/.zoomus"
   [[ -e "$base/Documents/Zoom" ]] && printf '%s\n' "$base/Documents/Zoom"
+  find "$base/Library" \( -iname 'zoomus.enc.db' -o -iname 'zoomus.enc.db*' -o -iname 'zoommeeting.enc.db' -o -iname 'zoommeeting.enc.db*' \) 2>/dev/null
 }
 
 park_personal_zoom_files() {
@@ -197,6 +206,9 @@ park_personal_zoom_files() {
   done < <(list_zoom_identity_paths "$HOME")
   HOME="$HOME" defaults delete us.zoom.xos >>"$LOG_FILE" 2>&1 || true
   HOME="$HOME" defaults delete ZoomChat >>"$LOG_FILE" 2>&1 || true
+  if [[ "$HAVE_SUDO" -eq 1 ]]; then
+    sudo rm -f /Library/Preferences/us.zoom.xos.plist /Library/Preferences/zoom.us.plist /Library/Preferences/us.zoom.config.plist >>"$LOG_FILE" 2>&1 || true
+  fi
   run_quiet killall -u "$CONSOLE_USER" cfprefsd || true
   sleep 1
 }
@@ -463,7 +475,30 @@ set_guest_display_name() {
   sudo dscl . -create "/Users/${CONSOLE_USER}" RealName "$GUEST_DISPLAY_NAME" >>"$LOG_FILE" 2>&1 \
     || die "Could not set the guest display name."
   REALNAME_SAVED=1
+  ORIGINAL_COMPUTERNAME="$(scutil --get ComputerName 2>/dev/null || true)"
+  if [[ -n "$ORIGINAL_COMPUTERNAME" ]]; then
+    printf '%s\n' "$ORIGINAL_COMPUTERNAME" > "$PARK_DIR/original_computername.txt"
+    sudo scutil --set ComputerName "$GUEST_DISPLAY_NAME" >>"$LOG_FILE" 2>&1 && COMPUTERNAME_SAVED=1 \
+      || warn "Could not set ComputerName for this session."
+  fi
   run_quiet dscacheutil -flushcache || true
+}
+
+seed_guest_zoom_prefs() {
+  local data="$HOME/Library/Application Support/zoom.us/data"
+  mkdir -p "$data" "$HOME/Library/Preferences"
+  log "Writing guest Zoom name $GUEST_DISPLAY_NAME into a fresh profile (no prior meeting)."
+  defaults write us.zoom.xos ZoomUserName -string "$GUEST_DISPLAY_NAME"
+  defaults write us.zoom.xos UserName -string "$GUEST_DISPLAY_NAME"
+  defaults write us.zoom.xos DisplayName -string "$GUEST_DISPLAY_NAME"
+  defaults write us.zoom.xos LastUserName -string "$GUEST_DISPLAY_NAME"
+  defaults write us.zoom.xos ConfUserName -string "$GUEST_DISPLAY_NAME"
+  defaults write us.zoom.xos kZoomUserName -string "$GUEST_DISPLAY_NAME"
+  defaults write us.zoom.xos AutoLogin -bool false
+  defaults write us.zoom.xos rememberMe -bool false
+  defaults write us.zoom.xos AutoSignIn -bool false
+  printf '%s\n' "[General]" "nRememberAccount=0" > "$data/Zoom.us.ini"
+  run_quiet killall -u "$CONSOLE_USER" cfprefsd || true
 }
 
 restore_display_name() {
@@ -478,6 +513,10 @@ restore_display_name() {
   log "Restoring macOS Full Name."
   sudo dscl . -create "/Users/${CONSOLE_USER}" RealName "$name" >>"$LOG_FILE" 2>&1 \
     || warn "Could not restore Full Name. Backup is on your Desktop: $NAME_BACKUP_FILE"
+  if [[ "$COMPUTERNAME_SAVED" -eq 1 && -f "$PARK_DIR/original_computername.txt" ]]; then
+    sudo scutil --set ComputerName "$(cat "$PARK_DIR/original_computername.txt")" >>"$LOG_FILE" 2>&1 \
+      || warn "Could not restore ComputerName."
+  fi
   run_quiet dscacheutil -flushcache || true
   rm -f "$NAME_BACKUP_FILE" >>"$LOG_FILE" 2>&1 || true
 }
@@ -526,9 +565,8 @@ wait_for_zoom_start() {
 
 wait_for_zoom_quit() {
   echo
-  echo "Zoom is in a guest session. Screen name for this session: $GUEST_DISPLAY_NAME"
-  echo "Sign in with the church account if you need that account."
-  echo "Leave this Terminal window open until you quit Zoom."
+  echo "Zoom is in a guest session. Your name this time is: $GUEST_DISPLAY_NAME"
+  echo "Change it in Zoom if you want. Leave this Terminal open until you quit Zoom."
   echo
   log "Waiting for Zoom to quit..."
   while zoom_is_running || { [[ -n "$SANDBOX_PID" ]] && kill -0 "$SANDBOX_PID" 2>/dev/null; }; do
@@ -566,13 +604,20 @@ main() {
   mkdir -p "$(dirname "$LOG_FILE")"
   : > "$LOG_FILE"
 
+  generate_guest_name
   echo "===================================="
-  echo " ZOOM GUEST SESSION "
+  echo " CHURCH GUEST ZOOM "
+  echo " BUILD $SCRIPT_VERSION"
+  echo " File: ChurchGuestZoom.command"
   echo "===================================="
   echo
-  echo "This hides your personal/gamer Zoom login and screen name."
-  echo "This session's screen name will be: $GUEST_DISPLAY_NAME"
+  echo "Stuck End Meeting windows are closed. Personal Zoom is parked."
+  echo "This session's Zoom name is the random code: $GUEST_DISPLAY_NAME"
+  echo "Change it later inside Zoom if you want."
   echo
+  osascript -e "display dialog \"CHURCH GUEST ZOOM\\nBuild $SCRIPT_VERSION\\n\\nYour Zoom name this session:\\n\\n$GUEST_DISPLAY_NAME\\n\\nThe stuck End Meeting state is cleared.\\nClick Allow if Keychain asks.\" buttons {\"Continue\"} default button 1 with title \"Church Guest Zoom\"" >/dev/null 2>&1 || true
+  # Do not use 1132wtf-v94's bsexec launcher at the same time.
+  pkill -f '/usr/local/libexec/1132wtf-v94/root_launch_temp_zoom.sh' >/dev/null 2>&1 || true
 
   log "Script started: $SCRIPT_NAME v$SCRIPT_VERSION"
   log "Log file: $LOG_FILE"
@@ -597,6 +642,7 @@ main() {
   fi
   log "Personal Zoom files and Keychain logins are hidden."
   set_guest_display_name
+  seed_guest_zoom_prefs
   launch_guest_zoom
   if ! wait_for_zoom_start; then
     die "Zoom did not stay running. See the log."
