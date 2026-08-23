@@ -1,5 +1,5 @@
 #!/bin/bash
-# ChurchGuestZoom — BUILD 2026-08-23-I
+# ChurchGuestZoom — BUILD 2026-08-23-J
 # Double-clickable guest Zoom session that cannot load the personal/gamer login.
 #
 # Hang / "did nothing" bugs removed vs build E:
@@ -39,7 +39,7 @@ OSA
 set -u -o pipefail
 
 SCRIPT_NAME="ChurchGuestZoom"
-SCRIPT_VERSION="2026-08-23-I"
+SCRIPT_VERSION="2026-08-23-J"
 GUEST_DISPLAY_NAME=""
 LOG_FILE="$HOME/Desktop/ChurchGuestZoom-log.txt"
 RUN_ID="$(date +%Y%m%d%H%M%S)"
@@ -329,45 +329,73 @@ unpark_personal_zoom_files() {
   fi
 }
 
+kc_field() {
+  local blob="$1"
+  local key="$2"
+  printf '%s\n' "$blob" | awk -v k="$key" '
+    $0 ~ "\"" k "\"" {
+      if ($0 ~ /<NULL>/) { print ""; exit }
+      n = split($0, a, "\"")
+      if (n >= 4) print a[4]
+      exit
+    }'
+}
+
 park_zoom_keychain() {
-  local label i=0
+  local label dump acct svce pass n=0 i
   mkdir -p "$PARK_DIR/kc"
   log "Parking Zoom Keychain items, including Zoom Safe Meeting Storage..."
   osascript_dialog "If a Keychain box appears, click Allow.
 
+That saves your gamer Zoom login so it can come back later.
+
 If it does not appear, or you click Deny, guest Zoom still starts.
 Personal Zoom files are already hidden." "Continue" 25
-  # Delete by label/service. Do not require reading the secret first
-  # (that is what hung on Allow and then aborted the whole launch).
   while IFS= read -r label; do
     [[ -n "$label" ]] || continue
     i=0
     while [[ "$i" -lt 6 ]]; do
-      if run_with_timeout 6 /usr/bin/security delete-generic-password -l "$label" >/dev/null 2>&1; then
-        log "Deleted Keychain label: $label"
-        i=$((i + 1))
-      else
+      dump="$(run_with_timeout 6 /usr/bin/security find-generic-password -l "$label" 2>/dev/null || true)"
+      [[ -n "$dump" ]] || break
+      acct="$(kc_field "$dump" "acct")"
+      svce="$(kc_field "$dump" "svce")"
+      pass=""
+      if run_with_timeout 8 /usr/bin/security find-generic-password -l "$label" -w >"$PARK_DIR/kc/tmp.pass" 2>/dev/null; then
+        pass="$(cat "$PARK_DIR/kc/tmp.pass" 2>/dev/null || true)"
+      fi
+      rm -f "$PARK_DIR/kc/tmp.pass"
+      if [[ -z "$pass" ]]; then
+        warn "Could not read Keychain secret for $label; leaving it in place so it can be restored later."
         break
       fi
+      n=$((n + 1))
+      printf '%s\n' "$label" > "$PARK_DIR/kc/$n.label"
+      printf '%s\n' "$acct" > "$PARK_DIR/kc/$n.acct"
+      printf '%s\n' "$svce" > "$PARK_DIR/kc/$n.svce"
+      printf '%s' "$pass" > "$PARK_DIR/kc/$n.pass"
+      chmod 600 "$PARK_DIR/kc/$n.pass" 2>/dev/null || true
+      if run_with_timeout 8 /usr/bin/security delete-generic-password -l "$label" >/dev/null 2>&1; then
+        log "Parked Keychain item: $label"
+      else
+        warn "Saved $label but could not delete it from Keychain."
+        break
+      fi
+      i=$((i + 1))
     done
   done <<EOF
 $ZOOM_KC_LABELS
 EOF
-  for svce in us.zoom.xos zoom.us ZoomChat Zoom; do
-    run_with_timeout 6 /usr/bin/security delete-generic-password -s "$svce" >/dev/null 2>&1 || true
-    run_with_timeout 6 /usr/bin/security delete-internet-password -s "$svce" >/dev/null 2>&1 || true
-  done
   KEYCHAIN_PARKED=1
   if keychain_zoom_still_present; then
     warn "Keychain would not hide every Zoom login (Allow was denied, timed out, or blocked)."
     osascript_dialog "Keychain did not hide every saved Zoom login.
 
 Guest Zoom will still start. Files are parked.
-If your gamer name appears, click Allow on Keychain next time.
+Your gamer Zoom login was left in Keychain so it is not lost.
 
 Click Continue." "Continue" 20
   else
-    log "Zoom Keychain logins are hidden."
+    log "Zoom Keychain logins are hidden and backed up for restore."
   fi
 }
 
@@ -388,7 +416,7 @@ unpark_zoom_keychain() {
       cmd=(/usr/bin/security add-generic-password -U -l "$label" -w "$pass")
       [[ -n "$acct" ]] && cmd+=(-a "$acct")
       [[ -n "$svce" ]] && cmd+=(-s "$svce")
-      run_with_timeout 25 "${cmd[@]}" >/dev/null 2>&1 || warn "Could not restore Keychain item: $label"
+      run_with_timeout 8 "${cmd[@]}" >/dev/null 2>&1 || warn "Could not restore Keychain item: $label"
     fi
     i=$((i + 1))
   done
@@ -398,7 +426,7 @@ keychain_zoom_still_present() {
   local label
   while IFS= read -r label; do
     [[ -n "$label" ]] || continue
-    if run_with_timeout 15 /usr/bin/security find-generic-password -l "$label" >/dev/null 2>&1; then
+    if run_with_timeout 6 /usr/bin/security find-generic-password -l "$label" >/dev/null 2>&1; then
       log "Keychain still has: $label"
       return 0
     fi

@@ -14,7 +14,7 @@ SRC = ROOT / "ChurchGuestZoom.command"
 APP_BIN = ROOT / "ChurchGuestZoom.app" / "Contents" / "MacOS" / "ChurchGuestZoom"
 KIT_A = ROOT / "kit" / "ChurchGuestZoom.command"
 KIT_B = ROOT / "kit" / "ZoomTempUser_Launch.command"
-ZIP_PATH = ROOT / "ChurchGuestZoom-20260823I.zip"
+ZIP_PATH = ROOT / "ChurchGuestZoom-20260823J.zip"
 OPEN_ME = ROOT / "OPEN_ME.txt"
 APP_ROOT = ROOT / "ChurchGuestZoom.app"
 

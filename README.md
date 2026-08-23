@@ -4,19 +4,19 @@ Guest Zoom session plus a hard reset. **Do not use if you have unsaved Zoom reco
 
 ## Church / guest Zoom (use this)
 
-Download **`ChurchGuestZoom-20260823I.zip`** only:
+Download **`ChurchGuestZoom-20260823J.zip`** only:
 
-https://github.com/domnsea/1132MAC/raw/cursor/fix-zoom-launch-crash-8c90/ChurchGuestZoom-20260823I.zip
+https://github.com/domnsea/1132MAC/raw/cursor/fix-zoom-launch-crash-8c90/ChurchGuestZoom-20260823J.zip
 
 Unzip, drag **`ChurchGuestZoom.app`** to the Desktop, then **right-click → Open**.
 
 A window must appear immediately. If it does not, this is the wrong zip.
 
-Build I:
+Build J:
 
 1. Force-closes stuck **End Meeting** windows
 2. Parks personal Zoom files (`zoomus.enc.db`, `zoommeeting.enc.db`)
-3. Tries to hide Zoom Keychain logins — **if Keychain says no, guest Zoom still starts**
+3. Tries to hide Zoom Keychain logins after backing them up — **if Keychain says no, guest Zoom still starts and the login is not deleted**
 4. Sets a **random 6-digit** screen name
 5. Starts Zoom with `sandbox-exec` — not `open`, not `bsexec`
 6. Restores gamer Zoom files when you quit Zoom

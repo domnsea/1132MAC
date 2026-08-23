@@ -8,7 +8,7 @@ TEMP="$ROOT/kit/ZoomTempUser_Launch.command"
 CHURCH="$ROOT/ChurchGuestZoom.command"
 APP="$ROOT/ChurchGuestZoom.app/Contents/MacOS/ChurchGuestZoom"
 PLIST="$ROOT/ChurchGuestZoom.app/Contents/Info.plist"
-ZIP="$ROOT/ChurchGuestZoom-20260823I.zip"
+ZIP="$ROOT/ChurchGuestZoom-20260823J.zip"
 
 fail() {
   echo "FAIL: $*" >&2
@@ -143,6 +143,28 @@ if start < 0 or end < 0:
 if "keychain_zoom_still_present" in text[start:end]:
     raise SystemExit("identity_still_visible still hard-fails on Keychain")
 PY
+python3 - "$TEMP" <<'PY' || fail "Keychain items must be backed up before delete"
+import sys, re
+from pathlib import Path
+text = Path(sys.argv[1]).read_text()
+start = text.find("park_zoom_keychain()")
+end = text.find("\nunpark_zoom_keychain()")
+if start < 0 or end < 0:
+    raise SystemExit("could not find park_zoom_keychain")
+body = text[start:end]
+if "delete-generic-password -s" in body or "delete-internet-password" in body:
+    raise SystemExit("unrestorable Keychain delete by service")
+if ".pass" not in body:
+    raise SystemExit("park_zoom_keychain does not save a password backup")
+del_at = body.find("delete-generic-password")
+pass_at = body.find(".pass")
+if del_at < 0:
+    raise SystemExit("park_zoom_keychain never deletes Keychain items")
+if pass_at < 0 or pass_at > del_at:
+    raise SystemExit("password backup must be written before delete")
+if "leaving it in place so it can be restored later" not in body:
+    raise SystemExit("must skip delete when the secret cannot be read")
+PY
 pass "guest launcher identity isolation"
 
 # Proof of life is the first osascript, before set -u work.
@@ -188,12 +210,12 @@ with zipfile.ZipFile(zpath) as zf:
     if mode & 0o111 == 0:
         raise SystemExit("app executable in zip is not executable (mode=%o)" % mode)
     data = zf.read("ChurchGuestZoom.app/Contents/MacOS/ChurchGuestZoom")
-    if b"2026-08-23-I" not in data:
+    if b"2026-08-23-J" not in data:
         raise SystemExit("zip app is not build F")
     if b"python3" in b"\n".join(line for line in data.splitlines() if not line.lstrip().startswith(b"#")):
         raise SystemExit("zip app still calls python3")
 print("zip ok")
 PY
-pass "zip ChurchGuestZoom-20260823I.zip contains executable .app"
+pass "zip ChurchGuestZoom-20260823J.zip contains executable .app"
 
 echo "All checks passed."
