@@ -17,7 +17,7 @@
 # Not launchctl bsexec as another UID (that crashes in _RegisterApplication).
 # Not sandbox-exec: seatbelt + a fake HOME made Zoom report no microphones
 # (VB-Cable and the built-in mic both disappeared). Parked identity is
-# chmod 000 so Zoom cannot read the Keychain backup without a sandbox.
+# chowned to root so same-UID Zoom cannot read the Keychain backup.
 
 export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin"
 
@@ -542,27 +542,62 @@ capture_computername_before_change() {
   printf '%s\n' "$ORIGINAL_COMPUTERNAME" > "$PARK_DIR/original_computername.txt"
 }
 
-# Owner can chmod a 000 path back; Zoom will not. This replaces sandbox-exec
-# so CoreAudio still sees VB-Cable and the built-in mic.
+# Root-own the park so same-UID Zoom cannot chmod it back and read
+# Keychain backups. sandbox-exec hid every microphone, including VB-Cable.
 unlock_park_dir() {
   local dir="$1"
+  local script
   [[ -n "$dir" && -e "$dir" ]] || return 0
-  chmod u+rwx "$dir" 2>/dev/null || true
-  if [[ -d "$dir" ]]; then
-    find "$dir" -exec chmod u+rwX {} + 2>/dev/null || true
+  mkdir -p "$HOME/.zwtf_identity_park"
+  script="$HOME/.zwtf_identity_park/.unlock.$$.sh"
+  cat > "$script" <<EOF
+#!/bin/bash
+chown -R "${CONSOLE_USER}" "$dir"
+chmod -R u+rwX "$dir"
+chmod 700 "$dir"
+if [ -d "$dir/kc" ]; then chmod 700 "$dir/kc"; fi
+EOF
+  chmod 700 "$script"
+  if run_admin "$script" >>"$LOG_FILE" 2>&1; then
+    rm -f "$script"
+  else
+    rm -f "$script"
+    chmod u+rwx "$dir" 2>/dev/null || true
+    if [[ -d "$dir" ]]; then
+      find "$dir" -exec chmod u+rwX {} + 2>/dev/null || true
+    fi
   fi
   chmod 700 "$dir" 2>/dev/null || true
   [[ -d "$dir/kc" ]] && chmod 700 "$dir/kc" 2>/dev/null || true
-  return 0
+  if [[ -x "$dir" || -r "$dir" ]]; then
+    return 0
+  fi
+  return 1
 }
 
 lock_park_dir() {
   local dir="$1"
+  local script
   [[ -d "$dir" ]] || return 1
-  find "$dir" -type f -exec chmod a-rwx {} + 2>/dev/null || true
-  find "$dir" -type d -mindepth 1 -exec chmod a-rwx {} + 2>/dev/null || true
-  chmod a-rwx "$dir" 2>/dev/null || true
-  log "Locked parked identity at $dir so Zoom can run without sandbox-exec."
+  mkdir -p "$HOME/.zwtf_identity_park"
+  script="$HOME/.zwtf_identity_park/.lock.$$.sh"
+  cat > "$script" <<EOF
+#!/bin/bash
+set -e
+chown -R root:wheel "$dir"
+chmod -R go-rwx "$dir"
+find "$dir" -type d -exec chmod 700 {} +
+find "$dir" -type f -exec chmod 600 {} +
+EOF
+  chmod 700 "$script"
+  if run_admin "$script" >>"$LOG_FILE" 2>&1; then
+    rm -f "$script"
+    log "Root-locked parked identity at $dir so Zoom cannot read Keychain backups."
+    return 0
+  fi
+  rm -f "$script"
+  warn "Could not root-lock parked identity at $dir"
+  return 1
 }
 
 refresh_coreaudio() {
@@ -738,12 +773,28 @@ restore_leftover_parks() {
   fi
   rm -rf "$oldest" >>"$LOG_FILE" 2>&1 || true
   log "Removed leftover park after restore: $oldest"
+  for extra in "$HOME/.zwtf_identity_park"/*; do
+    [[ -d "$extra" ]] || continue
+    [[ "$extra" == "$PARK_DIR" ]] && continue
+    log "Dropping newer leftover park without restoring: $extra"
+    if ! rm -rf "$extra" >>"$LOG_FILE" 2>&1; then
+      unlock_park_dir "$extra" || true
+      rm -rf "$extra" >>"$LOG_FILE" 2>&1 || true
+    fi
+    if [[ -d "$extra" ]]; then
+      warn "Could not remove newer leftover park $extra. Not starting a new guest session."
+      return 1
+    fi
+  done
 }
 
 launch_guest_zoom() {
   local zoom_dir
   mkdir -p "$GUEST_HOME/tmp" "$GUEST_HOME/Library"
-  lock_park_dir "$PARK_DIR"
+  lock_park_dir "$PARK_DIR" || die "Could not lock parked Zoom login.
+
+Enter your Mac password when asked, then run Church Guest Zoom again.
+Without that lock, guest Zoom is not started."
   log_audio_devices
   zoom_dir="$(dirname "$ZOOM_BIN")"
   log "Starting Zoom binary (not open, not sandbox-exec). Guest screen name: $GUEST_DISPLAY_NAME"

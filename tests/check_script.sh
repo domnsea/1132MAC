@@ -121,7 +121,7 @@ if noncomment "$TEMP" | grep -Eq '/usr/bin/sandbox-exec|sandbox-exec -f'; then
 fi
 grep -F 'exec "$ZOOM_BIN"' "$TEMP" >/dev/null || fail "guest launcher must exec the Zoom binary"
 grep -q 'lock_park_dir' "$TEMP" || fail "guest launcher must lock the park dir before Zoom"
-grep -q 'chmod a-rwx' "$TEMP" || fail "park lock must chmod a-rwx so Zoom cannot read Keychain backups"
+grep -q 'chown -R root:wheel' "$TEMP" || fail "park lock must chown to root so same-UID Zoom cannot read Keychain backups"
 grep -q 'killall coreaudiod' "$TEMP" || fail "guest launcher must restart CoreAudio so mics reappear"
 grep -q 'zAutoJoinVoip' "$TEMP" || fail "guest launcher must auto-join computer audio"
 pass "guest launcher unhang guards and microphone path"
@@ -222,6 +222,8 @@ if 'for dir in "$HOME/.zwtf_identity_park"/*' in body and 'rm -rf "$dir"' in bod
     raise SystemExit("leftover restore still deletes every leftover park")
 if "Removed leftover park after restore" not in body:
     raise SystemExit("leftover restore must only remove the park it restored")
+if "Dropping newer leftover park without restoring" not in body:
+    raise SystemExit("after oldest restore succeeds, newer leftover parks must be dropped without restore")
 if "Leftover Keychain restore failed" not in body:
     raise SystemExit("leftover restore must keep a park when Keychain restore fails")
 if "Leftover file restore failed" not in body:
