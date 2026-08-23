@@ -302,39 +302,50 @@ park_personal_zoom_files() {
   FILES_PARKED=1
 }
 
-discard_session_zoom_files() {
-  local p
-  while IFS= read -r p; do
-    [[ -e "$p" || -L "$p" ]] || continue
-    case "$p" in
-      "$PARK_DIR"*) continue ;;
-      "$HOME/.zwtf_identity_park"*) continue ;;
-    esac
-    rm -rf "$p" >>"$LOG_FILE" 2>&1 && log "Removed guest-session file: $p"
-  done < <(list_zoom_identity_paths "$HOME")
-}
-
 unpark_personal_zoom_files() {
   local park="${1:-}"
-  local n src
+  local n src failed=0
   if [[ -z "$park" ]]; then
     [[ "$FILES_PARKED" -eq 1 ]] || return 0
     park="$PARK_DIR"
   fi
-  discard_session_zoom_files
   [[ -f "$park/manifest.txt" ]] || return 0
   log "Restoring personal Zoom files from $park ..."
   while IFS=$'\t' read -r n src; do
     [[ -n "$n" && -n "$src" ]] || continue
-    mkdir -p "$(dirname "$src")"
-    rm -rf "$src" >>"$LOG_FILE" 2>&1 || true
     if [[ -e "$park/items/$n" || -L "$park/items/$n" ]]; then
-      mv "$park/items/$n" "$src" >>"$LOG_FILE" 2>&1 && log "Restored: $src" || warn "Could not restore: $src"
+      mkdir -p "$(dirname "$src")"
+      rm -rf "$src" >>"$LOG_FILE" 2>&1 || true
+      if mv "$park/items/$n" "$src" >>"$LOG_FILE" 2>&1; then
+        log "Restored: $src"
+      else
+        warn "Could not restore: $src"
+        failed=1
+      fi
+    elif [[ ! -e "$src" && ! -L "$src" ]]; then
+      warn "Parked item $n is gone and $src is missing."
+      failed=1
     fi
   done < "$park/manifest.txt"
+  if [[ "$failed" -ne 0 ]]; then
+    return 1
+  fi
+  # Guest-session leftovers only after every parked file is back.
+  while IFS= read -r src; do
+    [[ -e "$src" || -L "$src" ]] || continue
+    case "$src" in
+      "$park"*) continue ;;
+      "$HOME/.zwtf_identity_park"*) continue ;;
+    esac
+    if awk -F '\t' -v s="$src" '$2==s { found=1 } END { exit !found }' "$park/manifest.txt" 2>/dev/null; then
+      continue
+    fi
+    rm -rf "$src" >>"$LOG_FILE" 2>&1 && log "Removed guest-session file: $src"
+  done < <(list_zoom_identity_paths "$HOME")
   if [[ -n "${CONSOLE_USER:-}" ]]; then
     killall -u "$CONSOLE_USER" cfprefsd >/dev/null 2>&1 || true
   fi
+  return 0
 }
 
 kc_field() {
@@ -692,7 +703,11 @@ restore_leftover_parks() {
     warn "Could not unlock leftover park $oldest; leaving it in place."
     return 1
   }
-  unpark_personal_zoom_files "$oldest"
+  if ! unpark_personal_zoom_files "$oldest"; then
+    warn "Leftover file restore failed. Keeping $oldest"
+    lock_park_dir "$oldest"
+    return 1
+  fi
   if ! unpark_zoom_keychain "$oldest"; then
     warn "Leftover Keychain restore failed. Keeping $oldest"
     lock_park_dir "$oldest"
@@ -780,7 +795,12 @@ cleanup() {
   fi
   unlock_park_dir "$PARK_DIR"
   restore_display_name
-  unpark_personal_zoom_files
+  if ! unpark_personal_zoom_files; then
+    warn "File restore failed. Keeping $PARK_DIR so the next launch can retry. Do not delete this folder."
+    lock_park_dir "$PARK_DIR"
+    CLEANED_UP=0
+    return 1
+  fi
   if ! unpark_zoom_keychain; then
     warn "Keychain restore failed. Keeping $PARK_DIR so the next launch can retry. Do not delete this folder."
     lock_park_dir "$PARK_DIR"

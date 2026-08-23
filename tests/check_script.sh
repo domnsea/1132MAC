@@ -208,8 +208,12 @@ if "Removed leftover park after restore" not in body:
     raise SystemExit("leftover restore must only remove the park it restored")
 if "Leftover Keychain restore failed" not in body:
     raise SystemExit("leftover restore must keep a park when Keychain restore fails")
+if "Leftover file restore failed" not in body:
+    raise SystemExit("leftover restore must keep a park when file restore fails")
+if "if ! unpark_personal_zoom_files" not in body:
+    raise SystemExit("leftover restore must check file restore before deleting the park")
 PY
-python3 - "$TEMP" <<'PY' || fail "cleanup must not delete the park if Keychain restore fails"
+python3 - "$TEMP" <<'PY' || fail "cleanup must not delete the park if file or Keychain restore fails"
 import sys
 from pathlib import Path
 text = Path(sys.argv[1]).read_text()
@@ -218,15 +222,16 @@ end = text.find("\nmain()")
 if start < 0 or end < 0:
     raise SystemExit("could not find cleanup")
 body = text[start:end]
-fail_at = body.find("if ! unpark_zoom_keychain")
+fail_at = body.find("if ! unpark_personal_zoom_files")
+kc_at = body.find("if ! unpark_zoom_keychain")
 rm_at = body.find("remove_park_dir")
-if fail_at < 0 or rm_at < 0:
-    raise SystemExit("cleanup missing unpark_zoom_keychain guard or remove_park_dir")
-if fail_at > rm_at:
-    raise SystemExit("cleanup removes park before checking Keychain restore")
+if fail_at < 0 or kc_at < 0 or rm_at < 0:
+    raise SystemExit("cleanup missing restore guards or remove_park_dir")
+if fail_at > rm_at or kc_at > rm_at:
+    raise SystemExit("cleanup removes park before checking restore")
 chunk = body[fail_at:rm_at]
-if "return 1" not in chunk:
-    raise SystemExit("cleanup must return before remove_park_dir when Keychain restore fails")
+if chunk.count("return 1") < 2:
+    raise SystemExit("cleanup must return before remove_park_dir when file or Keychain restore fails")
 if "CLEANED_UP=1" in chunk:
     raise SystemExit("cleanup must not mark done while Keychain backup still exists")
 PY
