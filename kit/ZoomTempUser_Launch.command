@@ -438,6 +438,12 @@ unpark_zoom_keychain() {
       pass="$(cat "$park/kc/$i.pass")"
     fi
     if [[ -z "$pass" ]]; then
+      # A previous partial restore may have already put this item back.
+      if run_with_timeout 6 /usr/bin/security find-generic-password -l "$label" >/dev/null 2>&1; then
+        log "Keychain already has $label; continuing remaining items."
+        i=$((i + 1))
+        continue
+      fi
       warn "Keychain backup missing for $label; keeping park dir."
       return 1
     fi
@@ -445,7 +451,6 @@ unpark_zoom_keychain() {
     [[ -n "$acct" ]] && cmd+=(-a "$acct")
     [[ -n "$svce" ]] && cmd+=(-s "$svce")
     if run_with_timeout 8 "${cmd[@]}" >/dev/null 2>&1; then
-      rm -f "$park/kc/$i.pass"
       log "Restored Keychain item: $label"
     else
       warn "Could not restore Keychain item: $label; keeping park dir."

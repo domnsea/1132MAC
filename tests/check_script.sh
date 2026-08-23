@@ -191,6 +191,22 @@ if pass_at < 0 or pass_at > del_at:
 if "leaving it in place so it can be restored later" not in body:
     raise SystemExit("must skip delete when the secret cannot be read")
 PY
+python3 - "$TEMP" <<'PY' || fail "Keychain restore must keep password backups until the whole restore succeeds"
+import sys
+from pathlib import Path
+text = Path(sys.argv[1]).read_text()
+start = text.find("unpark_zoom_keychain()")
+end = text.find("\nkeychain_zoom_still_present()")
+if start < 0 or end < 0:
+    raise SystemExit("could not find unpark_zoom_keychain")
+body = text[start:end]
+if 'rm -f "$park/kc/$i.pass"' in body or "rm -f \"$park/kc/$i.pass\"" in body:
+    raise SystemExit("unpark_zoom_keychain must not delete a password backup per item")
+if "keeping park dir" not in body:
+    raise SystemExit("unpark_zoom_keychain must keep the park when an add fails")
+if "Keychain already has" not in body:
+    raise SystemExit("unpark_zoom_keychain must skip items already restored on retry")
+PY
 grep -q 'restore_leftover_parks' "$TEMP" || fail "guest launcher must restore leftover parks on next run"
 grep -q 'oldest leftover parked Zoom identity' "$TEMP" || fail "leftover restore must use the oldest park only"
 python3 - "$TEMP" <<'PY' || fail "leftover restore must not delete every leftover park"
