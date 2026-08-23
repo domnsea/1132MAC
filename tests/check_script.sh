@@ -213,6 +213,12 @@ if 'printf \'%s\' "$pass" > "$PARK_DIR/kc/$n.pass"' in body:
 admin_at = body.find("run_admin_cmd")
 if admin_at < 0 or admin_at > del_at:
     raise SystemExit("password files must be written as root before Keychain delete")
+lock_at = body.find("chown -R root:wheel")
+write_at = body.find("printf '%s' $(sh_quote \"$pass\")")
+if lock_at < 0 or write_at < 0 or lock_at > write_at:
+    raise SystemExit("must root-lock the park before writing .pass files")
+if "[ -L" not in body or "rm -f" not in body:
+    raise SystemExit("privileged .pass write must refuse or unlink a planted symlink")
 PY
 python3 - "$TEMP" <<'PY' || fail "Keychain restore must keep password backups until the whole restore succeeds"
 import sys
@@ -229,6 +235,12 @@ if "keeping park dir" not in body:
     raise SystemExit("unpark_zoom_keychain must keep the park when an add fails")
 if "Keychain already has" not in body:
     raise SystemExit("unpark_zoom_keychain must skip items already restored on retry")
+if '-w "$pass"' in body:
+    raise SystemExit("must not pass Keychain secret in user process argv")
+if "run_admin_cmd" not in body:
+    raise SystemExit("Keychain restore must add passwords as root from the backup file")
+if "cat --" not in body:
+    raise SystemExit("Keychain restore must read .pass as root, not via user argv")
 PY
 grep -q 'oldest leftover parked Zoom identity' "$TEMP" || fail "leftover restore must use the oldest park only"
 python3 - "$TEMP" <<'PY' || fail "leftover restore must not delete every leftover park"

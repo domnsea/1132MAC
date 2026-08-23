@@ -387,6 +387,20 @@ kc_field() {
     }'
 }
 
+login_keychain_path() {
+  local p
+  for p in \
+    "$HOME/Library/Keychains/login.keychain-db" \
+    "$HOME/Library/Keychains/login.keychain"
+  do
+    if [[ -e "$p" ]]; then
+      printf '%s\n' "$p"
+      return 0
+    fi
+  done
+  printf '%s\n' "$HOME/Library/Keychains/login.keychain-db"
+}
+
 park_zoom_keychain() {
   local label dump acct svce pass n=0 i cmd to_delete=""
   mkdir -p "$PARK_DIR/kc"
@@ -398,7 +412,17 @@ That saves your gamer Zoom login so it can come back later.
 
 If it does not appear, or you click Deny, guest Zoom still starts.
 Personal Zoom files are already hidden." "Continue" 25
-  cmd="umask 077; mkdir -p $(sh_quote "$PARK_DIR/kc")"
+  # Lock the park first so a same-UID process cannot plant a symlink
+  # that root would follow when writing .pass files.
+  cmd="umask 077
+park=$(sh_quote "$PARK_DIR")
+if [ -L \"\$park\" ] || [ ! -d \"\$park\" ]; then echo park_not_dir; exit 1; fi
+if [ -L \"\$park/kc\" ]; then rm -f \"\$park/kc\"; fi
+mkdir -p \"\$park/kc\"
+if [ -L \"\$park/kc\" ]; then echo kc_is_symlink; exit 1; fi
+chown -R root:wheel \"\$park\"
+chmod 700 \"\$park\" \"\$park/kc\"
+rm -f \"\$park/kc\"/*.pass"
   while IFS= read -r label; do
     [[ -n "$label" ]] || continue
     i=0
@@ -416,7 +440,7 @@ Personal Zoom files are already hidden." "Continue" 25
       printf '%s\n' "$label" > "$PARK_DIR/kc/$n.label"
       printf '%s\n' "$acct" > "$PARK_DIR/kc/$n.acct"
       printf '%s\n' "$svce" > "$PARK_DIR/kc/$n.svce"
-      cmd="$cmd; printf '%s' $(sh_quote "$pass") > $(sh_quote "$PARK_DIR/kc/$n.pass")"
+      cmd="$cmd; rm -f \"\$park/kc/$n.pass\"; printf '%s' $(sh_quote "$pass") > \"\$park/kc/$n.pass\""
       to_delete="${to_delete}${label}"$'\n'
       i=$((i + 1))
     done
@@ -424,7 +448,7 @@ Personal Zoom files are already hidden." "Continue" 25
 $ZOOM_KC_LABELS
 EOF
   if [[ "$n" -gt 0 ]]; then
-    cmd="$cmd; chown -R root:wheel $(sh_quote "$PARK_DIR"); chmod -R go-rwx $(sh_quote "$PARK_DIR"); find $(sh_quote "$PARK_DIR") -type d -exec chmod 700 {} +; find $(sh_quote "$PARK_DIR") -type f -exec chmod 600 {} +"
+    cmd="$cmd; chmod -R go-rwx $(sh_quote "$PARK_DIR"); find $(sh_quote "$PARK_DIR") -type d -exec chmod 700 {} +; find $(sh_quote "$PARK_DIR") -type f -exec chmod 600 {} +"
     if ! run_admin_cmd "$cmd" >>"$LOG_FILE" 2>&1; then
       warn "Could not store Keychain backups as root. Secrets were left in Keychain."
     else
@@ -455,43 +479,47 @@ Click Continue." "Continue" 20
 
 unpark_zoom_keychain() {
   local park="${1:-}"
-  local i label acct svce pass
-  local -a cmd
+  local kc cmd
   if [[ -z "$park" ]]; then
     [[ "$KEYCHAIN_PARKED" -eq 1 ]] || return 0
     park="$PARK_DIR"
   fi
   log "Restoring Zoom Keychain items from $park ..."
-  i=1
-  while [[ -f "$park/kc/$i.label" ]]; do
-    label="$(cat "$park/kc/$i.label")"
-    acct="$(cat "$park/kc/$i.acct" 2>/dev/null || true)"
-    svce="$(cat "$park/kc/$i.svce" 2>/dev/null || true)"
-    pass=""
-    if [[ -f "$park/kc/$i.pass" ]]; then
-      pass="$(cat "$park/kc/$i.pass")"
+  kc="$(login_keychain_path)"
+  # Root reads each .pass file and adds it to this user's login keychain.
+  # The secret must not appear in this user's process arguments (ps).
+  cmd="park=$(sh_quote "$park")
+kc=$(sh_quote "$kc")
+i=1
+while [ -f \"\$park/kc/\$i.label\" ]; do
+  label=\$(cat -- \"\$park/kc/\$i.label\")
+  acct=\$(cat -- \"\$park/kc/\$i.acct\" 2>/dev/null || true)
+  svce=\$(cat -- \"\$park/kc/\$i.svce\" 2>/dev/null || true)
+  pf=\"\$park/kc/\$i.pass\"
+  if [ -L \"\$pf\" ]; then echo symlink_pass; exit 1; fi
+  if [ ! -f \"\$pf\" ]; then
+    if /usr/bin/security find-generic-password -l \"\$label\" \"\$kc\" >/dev/null 2>&1; then
+      echo already_has
+      i=\$((i + 1))
+      continue
     fi
-    if [[ -z "$pass" ]]; then
-      # A previous partial restore may have already put this item back.
-      if run_with_timeout 6 /usr/bin/security find-generic-password -l "$label" >/dev/null 2>&1; then
-        log "Keychain already has $label; continuing remaining items."
-        i=$((i + 1))
-        continue
-      fi
-      warn "Keychain backup missing for $label; keeping park dir."
-      return 1
-    fi
-    cmd=(/usr/bin/security add-generic-password -U -l "$label" -w "$pass")
-    [[ -n "$acct" ]] && cmd+=(-a "$acct")
-    [[ -n "$svce" ]] && cmd+=(-s "$svce")
-    if run_with_timeout 8 "${cmd[@]}" >/dev/null 2>&1; then
-      log "Restored Keychain item: $label"
-    else
-      warn "Could not restore Keychain item: $label; keeping park dir."
-      return 1
-    fi
-    i=$((i + 1))
-  done
+    echo missing_pass
+    exit 1
+  fi
+  pass=\$(cat -- \"\$pf\")
+  if [ -z \"\$pass\" ]; then echo empty_pass; exit 1; fi
+  set -- /usr/bin/security add-generic-password -U -l \"\$label\" -w \"\$pass\"
+  [ -n \"\$acct\" ] && set -- \"\$@\" -a \"\$acct\"
+  [ -n \"\$svce\" ] && set -- \"\$@\" -s \"\$svce\"
+  set -- \"\$@\" \"\$kc\"
+  \"\$@\" || exit 1
+  i=\$((i + 1))
+done"
+  if ! run_admin_cmd "$cmd" >>"$LOG_FILE" 2>&1; then
+    warn "Could not restore Keychain item; keeping park dir."
+    return 1
+  fi
+  log "Keychain already has any previously restored Zoom logins; remaining items restored from $park"
   return 0
 }
 
