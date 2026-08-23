@@ -8,7 +8,7 @@ TEMP="$ROOT/kit/ZoomTempUser_Launch.command"
 CHURCH="$ROOT/ChurchGuestZoom.command"
 APP="$ROOT/ChurchGuestZoom.app/Contents/MacOS/ChurchGuestZoom"
 PLIST="$ROOT/ChurchGuestZoom.app/Contents/Info.plist"
-ZIP="$ROOT/ChurchGuestZoom-20260823G.zip"
+ZIP="$ROOT/ChurchGuestZoom-20260823H.zip"
 
 fail() {
   echo "FAIL: $*" >&2
@@ -115,6 +115,19 @@ grep -q 'Could not quit Zoom' "$TEMP" || fail "guest launcher must stop if Zoom 
 if grep -A2 'still present after kill' "$TEMP" | grep -q 'return 0'; then
   fail "stop_zoom must not succeed if Zoom is still running"
 fi
+python3 - "$TEMP" <<'PY' || fail "cleanup must not restore Full Name while Zoom is still running"
+import sys
+from pathlib import Path
+text = Path(sys.argv[1]).read_text()
+start = text.find("if ! stop_zoom; then")
+if start < 0:
+    raise SystemExit("missing stop_zoom failure branch")
+end = text.find("\n  fi\n", start)
+if end < 0:
+    raise SystemExit("could not find end of stop_zoom failure branch")
+if "restore_display_name" in text[start:end]:
+    raise SystemExit("failure branch restores display name")
+PY
 pass "guest launcher identity isolation"
 
 # Proof of life is the first osascript, before set -u work.
@@ -160,12 +173,12 @@ with zipfile.ZipFile(zpath) as zf:
     if mode & 0o111 == 0:
         raise SystemExit("app executable in zip is not executable (mode=%o)" % mode)
     data = zf.read("ChurchGuestZoom.app/Contents/MacOS/ChurchGuestZoom")
-    if b"2026-08-23-G" not in data:
+    if b"2026-08-23-H" not in data:
         raise SystemExit("zip app is not build F")
     if b"python3" in b"\n".join(line for line in data.splitlines() if not line.lstrip().startswith(b"#")):
         raise SystemExit("zip app still calls python3")
 print("zip ok")
 PY
-pass "zip ChurchGuestZoom-20260823G.zip contains executable .app"
+pass "zip ChurchGuestZoom-20260823H.zip contains executable .app"
 
 echo "All checks passed."

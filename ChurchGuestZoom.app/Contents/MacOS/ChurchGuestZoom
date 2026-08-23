@@ -1,5 +1,5 @@
 #!/bin/bash
-# ChurchGuestZoom — BUILD 2026-08-23-G
+# ChurchGuestZoom — BUILD 2026-08-23-H
 # Double-clickable guest Zoom session that cannot load the personal/gamer login.
 #
 # Hang / "did nothing" bugs removed vs build E:
@@ -39,7 +39,7 @@ OSA
 set -u -o pipefail
 
 SCRIPT_NAME="ChurchGuestZoom"
-SCRIPT_VERSION="2026-08-23-G"
+SCRIPT_VERSION="2026-08-23-H"
 GUEST_DISPLAY_NAME=""
 LOG_FILE="$HOME/Desktop/ChurchGuestZoom-log.txt"
 RUN_ID="$(date +%Y%m%d%H%M%S)"
@@ -634,8 +634,7 @@ cleanup() {
   [[ "$CLEANED_UP" -eq 1 ]] && return 0
   CLEANED_UP=1
   if ! stop_zoom; then
-    warn "Zoom still running; not restoring parked files onto a live Zoom."
-    restore_display_name
+    warn "Zoom still running; not restoring parked files or display name onto a live Zoom."
     log "Parked identity remains in $PARK_DIR. Desktop backup: $NAME_BACKUP_FILE"
     return 0
   fi
