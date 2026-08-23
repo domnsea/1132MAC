@@ -1,7 +1,9 @@
-CHURCH GUEST ZOOM — BUILD 2026-08-23-L
+CHURCH GUEST ZOOM — BUILD 2026-08-23-M
 
-Throw away zip K. It hid every microphone (including VB-Cable)
-because Zoom ran inside sandbox-exec.
+Throw away zips H, K, and L.
+H/L stopped with "Personal Zoom identity is still visible"
+because macOS put Zoom prefs back after they were hidden.
+K hid every microphone (including VB-Cable).
 
 HOW TO RUN (pick one)
 

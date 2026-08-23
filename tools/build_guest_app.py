@@ -17,7 +17,7 @@ APP_SCRIPT = ROOT / "ChurchGuestZoom.app" / "Contents" / "Resources" / "launch.c
 OPEN_CMD = ROOT / "ChurchGuestZoom-OPEN-ME.command"
 KIT_A = ROOT / "kit" / "ChurchGuestZoom.command"
 KIT_B = ROOT / "kit" / "ZoomTempUser_Launch.command"
-ZIP_PATH = ROOT / "ChurchGuestZoom-20260823L.zip"
+ZIP_PATH = ROOT / "ChurchGuestZoom-20260823M.zip"
 OPEN_ME = ROOT / "OPEN_ME.txt"
 
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# ChurchGuestZoom — BUILD 2026-08-23-L
+# ChurchGuestZoom — BUILD 2026-08-23-M
 # Double-clickable guest Zoom session that cannot load the personal/gamer login.
 #
 # Hang / "did nothing" bugs removed vs build E:
@@ -12,6 +12,8 @@
 #   - No security dump-keychain
 #   - Wait-for-quit watches zoom.us only, not leftover CptHost helpers
 #   - Keychain park is best-effort: a Deny/timeout must not abort guest Zoom
+#   - Launch is only refused for leftover zoomus.enc.db / zoommeeting.enc.db.
+#     Recreated prefs, recordings, logs, and the Zoom plugin must not abort.
 #
 # Launch path: exec the Zoom binary as THIS Aqua user. Not open.
 # Not launchctl bsexec as another UID (that crashes in _RegisterApplication).
@@ -43,8 +45,9 @@ OSA
 set -u -o pipefail
 
 SCRIPT_NAME="ChurchGuestZoom"
-SCRIPT_VERSION="2026-08-23-L"
+SCRIPT_VERSION="2026-08-23-M"
 GUEST_DISPLAY_NAME=""
+IDENTITY_LEFTOVER=""
 LOG_FILE="$HOME/Desktop/ChurchGuestZoom-log.txt"
 RUN_ID="$(date +%Y%m%d%H%M%S)"
 PARK_DIR="$HOME/.zwtf_identity_park/${RUN_ID}"
@@ -269,6 +272,66 @@ list_zoom_identity_paths() {
   done
 }
 
+# Real Zoom login databases only. Recordings, logs, plugins, and prefs ghosts
+# are not identity — treating them as such made every launch abort.
+find_login_dbs() {
+  local base="$1"
+  local dir
+  for dir in \
+    "$base/Library/Application Support/zoom.us" \
+    "$base/Library/Application Support/Zoom" \
+    "$base/Library/Group Containers"
+  do
+    [[ -d "$dir" ]] || continue
+    find "$dir" -maxdepth 6 \( -iname 'zoomus.enc.db*' -o -iname 'zoommeeting.enc.db*' \) 2>/dev/null
+  done
+}
+
+# cfprefsd rewrites parked plists back into ~/Library/Preferences. The real
+# files are already in PARK_DIR; these copies are cache ghosts.
+purge_cached_zoom_prefs() {
+  local round
+  for round in 1 2 3; do
+    killall cfprefsd >/dev/null 2>&1 || true
+    if [[ -n "${CONSOLE_USER:-}" ]]; then
+      killall -u "$CONSOLE_USER" cfprefsd >/dev/null 2>&1 || true
+    fi
+    defaults delete us.zoom.xos >>"$LOG_FILE" 2>&1 || true
+    defaults delete ZoomChat >>"$LOG_FILE" 2>&1 || true
+    rm -f \
+      "$HOME/Library/Preferences/us.zoom.xos.plist" \
+      "$HOME/Library/Preferences/ZoomChat.plist" \
+      "$HOME/Library/Preferences/us.zoom.ZoomAutoUpdater.plist" \
+      "$HOME/Library/Preferences/us.zoom.ZoomClips.plist"
+    if [[ -d "$HOME/Library/Preferences/ByHost" ]]; then
+      find "$HOME/Library/Preferences/ByHost" -maxdepth 1 \( -iname '*zoom*' -o -iname 'us.zoom*' \) -delete 2>/dev/null || true
+    fi
+    sleep 0.3
+  done
+}
+
+park_remaining_login_dbs() {
+  local src n=0
+  if [[ -f "$PARK_DIR/manifest.txt" ]]; then
+    n="$(wc -l < "$PARK_DIR/manifest.txt" | tr -d ' ')"
+  fi
+  while IFS= read -r src; do
+    [[ -e "$src" || -L "$src" ]] || continue
+    case "$src" in
+      "$PARK_DIR"*) continue ;;
+      "$HOME/.zwtf_guest_home"*) continue ;;
+      "$HOME/.zwtf_identity_park"*) continue ;;
+    esac
+    n=$((n + 1))
+    if mv "$src" "$PARK_DIR/items/$n" >>"$LOG_FILE" 2>&1; then
+      printf '%s\t%s\n' "$n" "$src" >> "$PARK_DIR/manifest.txt"
+      log "Parked leftover login db: $src"
+    else
+      warn "Could not park leftover login db: $src"
+    fi
+  done < <(find_login_dbs "$HOME")
+}
+
 park_personal_zoom_files() {
   local src n=0 seen=""
   mkdir -p "$PARK_DIR/items"
@@ -293,12 +356,8 @@ park_personal_zoom_files() {
       warn "Could not park: $src"
     fi
   done < <(list_zoom_identity_paths "$HOME")
-  defaults delete us.zoom.xos >>"$LOG_FILE" 2>&1 || true
-  defaults delete ZoomChat >>"$LOG_FILE" 2>&1 || true
-  if [[ -n "$CONSOLE_USER" ]]; then
-    killall -u "$CONSOLE_USER" cfprefsd >/dev/null 2>&1 || true
-  fi
-  sleep 1
+  purge_cached_zoom_prefs
+  park_remaining_login_dbs
   FILES_PARKED=1
 }
 
@@ -461,18 +520,7 @@ EOF
 
 identity_still_visible() {
   local p
-  if [[ -e "$HOME/Library/Application Support/zoom.us/data/zoomus.enc.db" ]]; then
-    log "Identity still visible: zoomus.enc.db"
-    return 0
-  fi
-  if [[ -e "$HOME/Library/Application Support/zoom.us/data/zoommeeting.enc.db" ]]; then
-    log "Identity still visible: zoommeeting.enc.db"
-    return 0
-  fi
-  if [[ -e "$HOME/Library/Preferences/us.zoom.xos.plist" ]]; then
-    log "Identity still visible: us.zoom.xos.plist"
-    return 0
-  fi
+  IDENTITY_LEFTOVER=""
   while IFS= read -r p; do
     [[ -e "$p" || -L "$p" ]] || continue
     case "$p" in
@@ -480,11 +528,13 @@ identity_still_visible() {
       "$HOME/.zwtf_identity_park"*) continue ;;
       "$HOME/.zwtf_guest_home"*) continue ;;
     esac
+    IDENTITY_LEFTOVER="$p"
     log "Identity still visible: $p"
     return 0
-  done < <(list_zoom_identity_paths "$HOME")
-  # Keychain leftovers do not abort launch. Allow/Deny prompts are unreliable
-  # and were aborting sessions after files were already parked.
+  done < <(find_login_dbs "$HOME")
+  # Prefs ghosts, recordings, logs, plugins, and Keychain leftovers must not
+  # abort launch. Allow/Deny prompts are unreliable, and cfprefsd rewriting
+  # Zoom prefs after parking was aborting every session.
   return 1
 }
 
@@ -841,7 +891,13 @@ VB-Cable and other mics stay visible in Zoom Audio." "Continue" 40
   park_personal_zoom_files
   park_zoom_keychain
   if identity_still_visible; then
-    die "Personal Zoom files are still visible. Refusing to launch."
+    die "Personal Zoom login file is still visible${IDENTITY_LEFTOVER:+:
+
+$IDENTITY_LEFTOVER}
+
+Refusing to launch so your gamer login cannot open.
+
+Quit Zoom and 1132wtf-v94 completely, then run again."
   fi
   log "Personal Zoom files are hidden."
   set_guest_display_name

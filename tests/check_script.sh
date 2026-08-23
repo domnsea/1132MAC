@@ -10,7 +10,7 @@ APP="$ROOT/ChurchGuestZoom.app/Contents/MacOS/ChurchGuestZoom"
 APP_SCRIPT="$ROOT/ChurchGuestZoom.app/Contents/Resources/launch.command"
 OPEN_CMD="$ROOT/ChurchGuestZoom-OPEN-ME.command"
 PLIST="$ROOT/ChurchGuestZoom.app/Contents/Info.plist"
-ZIP="$ROOT/ChurchGuestZoom-20260823L.zip"
+ZIP="$ROOT/ChurchGuestZoom-20260823M.zip"
 
 fail() {
   echo "FAIL: $*" >&2
@@ -166,9 +166,20 @@ start = text.find("identity_still_visible()")
 end = text.find("\nread_realname()")
 if start < 0 or end < 0:
     raise SystemExit("could not find identity_still_visible")
-if "keychain_zoom_still_present" in text[start:end]:
+body = text[start:end]
+if "keychain_zoom_still_present" in body:
     raise SystemExit("identity_still_visible still hard-fails on Keychain")
+if "list_zoom_identity_paths" in body:
+    raise SystemExit("identity_still_visible must not scan every Zoom path")
+if "us.zoom.xos.plist" in body:
+    raise SystemExit("recreated us.zoom.xos.plist must not abort launch")
+if "Documents/Zoom" in body:
+    raise SystemExit("recordings must not abort guest launch")
+if "find_login_dbs" not in body:
+    raise SystemExit("identity_still_visible must only inspect login databases")
 PY
+grep -q 'purge_cached_zoom_prefs' "$TEMP" || fail "guest launcher must purge cfprefsd ghosts after parking"
+grep -q 'park_remaining_login_dbs' "$TEMP" || fail "guest launcher must retry parking leftover enc.db files"
 python3 - "$TEMP" <<'PY' || fail "Keychain items must be backed up before delete"
 import sys, re
 from pathlib import Path
@@ -284,14 +295,14 @@ with zipfile.ZipFile(zpath) as zf:
     if cmdmode & 0o111 == 0:
         raise SystemExit("OPEN-ME.command in zip is not executable (mode=%o)" % cmdmode)
     data = zf.read("ChurchGuestZoom.app/Contents/Resources/launch.command")
-    if b"2026-08-23-L" not in data:
-        raise SystemExit("zip launch.command is not build L")
+    if b"2026-08-23-M" not in data:
+        raise SystemExit("zip launch.command is not build M")
     if b"python3" in b"\n".join(line for line in data.splitlines() if not line.lstrip().startswith(b"#")):
         raise SystemExit("zip launcher still calls python3")
     if b"/usr/bin/sandbox-exec" in data or b"sandbox-exec -f" in data:
         raise SystemExit("zip launcher still uses sandbox-exec")
 print("zip ok")
 PY
-pass "zip ChurchGuestZoom-20260823L.zip contains Mach-O app and OPEN-ME.command"
+pass "zip ChurchGuestZoom-20260823M.zip contains Mach-O app and OPEN-ME.command"
 
 echo "All checks passed."
