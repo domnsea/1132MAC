@@ -214,11 +214,15 @@ admin_at = body.find("run_admin_cmd")
 if admin_at < 0 or admin_at > del_at:
     raise SystemExit("password files must be written as root before Keychain delete")
 lock_at = body.find("chown -R root:wheel")
-write_at = body.find("printf '%s' $(sh_quote \"$pass\")")
+write_at = body.find("printf '%s' \\\"\\$pass\\\"")
 if lock_at < 0 or write_at < 0 or lock_at > write_at:
     raise SystemExit("must root-lock the park before writing .pass files")
 if "[ -L" not in body or "rm -f" not in body:
     raise SystemExit("privileged .pass write must refuse or unlink a planted symlink")
+if '$(sh_quote "$pass")' in body:
+    raise SystemExit("must not interpolate Keychain password into osascript argv")
+if 'find-generic-password -l "$label" -w' in body:
+    raise SystemExit("must not read Keychain secret into the user process")
 PY
 python3 - "$TEMP" <<'PY' || fail "Keychain restore must keep password backups until the whole restore succeeds"
 import sys

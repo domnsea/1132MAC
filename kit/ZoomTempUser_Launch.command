@@ -402,7 +402,7 @@ login_keychain_path() {
 }
 
 park_zoom_keychain() {
-  local label dump acct svce pass n=0 i cmd to_delete=""
+  local label dump acct svce n=0 i cmd to_delete=""
   mkdir -p "$PARK_DIR/kc"
   chmod 700 "$PARK_DIR" "$PARK_DIR/kc" 2>/dev/null || true
   log "Parking Zoom Keychain items, including Zoom Safe Meeting Storage..."
@@ -412,17 +412,6 @@ That saves your gamer Zoom login so it can come back later.
 
 If it does not appear, or you click Deny, guest Zoom still starts.
 Personal Zoom files are already hidden." "Continue" 25
-  # Lock the park first so a same-UID process cannot plant a symlink
-  # that root would follow when writing .pass files.
-  cmd="umask 077
-park=$(sh_quote "$PARK_DIR")
-if [ -L \"\$park\" ] || [ ! -d \"\$park\" ]; then echo park_not_dir; exit 1; fi
-if [ -L \"\$park/kc\" ]; then rm -f \"\$park/kc\"; fi
-mkdir -p \"\$park/kc\"
-if [ -L \"\$park/kc\" ]; then echo kc_is_symlink; exit 1; fi
-chown -R root:wheel \"\$park\"
-chmod 700 \"\$park\" \"\$park/kc\"
-rm -f \"\$park/kc\"/*.pass"
   while IFS= read -r label; do
     [[ -n "$label" ]] || continue
     i=0
@@ -431,16 +420,10 @@ rm -f \"\$park/kc\"/*.pass"
       [[ -n "$dump" ]] || break
       acct="$(kc_field "$dump" "acct")"
       svce="$(kc_field "$dump" "svce")"
-      pass="$(run_with_timeout 8 /usr/bin/security find-generic-password -l "$label" -w 2>/dev/null || true)"
-      if [[ -z "$pass" ]]; then
-        warn "Could not read Keychain secret for $label; leaving it in place so it can be restored later."
-        break
-      fi
       n=$((n + 1))
       printf '%s\n' "$label" > "$PARK_DIR/kc/$n.label"
       printf '%s\n' "$acct" > "$PARK_DIR/kc/$n.acct"
       printf '%s\n' "$svce" > "$PARK_DIR/kc/$n.svce"
-      cmd="$cmd; rm -f \"\$park/kc/$n.pass\"; printf '%s' $(sh_quote "$pass") > \"\$park/kc/$n.pass\""
       to_delete="${to_delete}${label}"$'\n'
       i=$((i + 1))
     done
@@ -448,7 +431,32 @@ rm -f \"\$park/kc\"/*.pass"
 $ZOOM_KC_LABELS
 EOF
   if [[ "$n" -gt 0 ]]; then
-    cmd="$cmd; chmod -R go-rwx $(sh_quote "$PARK_DIR"); find $(sh_quote "$PARK_DIR") -type d -exec chmod 700 {} +; find $(sh_quote "$PARK_DIR") -type f -exec chmod 600 {} +"
+    # Root reads secrets from the login keychain and writes .pass.
+    # Do not interpolate passwords into osascript argv.
+    cmd="umask 077
+park=$(sh_quote "$PARK_DIR")
+kc=$(sh_quote "$(login_keychain_path)")
+if [ -L \"\$park\" ] || [ ! -d \"\$park\" ]; then echo park_not_dir; exit 1; fi
+if [ -L \"\$park/kc\" ]; then rm -f \"\$park/kc\"; fi
+mkdir -p \"\$park/kc\"
+if [ -L \"\$park/kc\" ]; then echo kc_is_symlink; exit 1; fi
+chown -R root:wheel \"\$park\"
+chmod 700 \"\$park\" \"\$park/kc\"
+i=1
+while [ -f \"\$park/kc/\$i.label\" ]; do
+  label=\$(cat -- \"\$park/kc/\$i.label\")
+  pass=\$(/usr/bin/security find-generic-password -l \"\$label\" -w \"\$kc\" 2>/dev/null) || true
+  if [ -z \"\$pass\" ]; then
+    echo leaving it in place so it can be restored later
+    exit 1
+  fi
+  rm -f \"\$park/kc/\$i.pass\"
+  printf '%s' \"\$pass\" > \"\$park/kc/\$i.pass\"
+  i=\$((i + 1))
+done
+chmod -R go-rwx \"\$park\"
+find \"\$park\" -type d -exec chmod 700 {} +
+find \"\$park\" -type f -exec chmod 600 {} +"
     if ! run_admin_cmd "$cmd" >>"$LOG_FILE" 2>&1; then
       warn "Could not store Keychain backups as root. Secrets were left in Keychain."
     else
