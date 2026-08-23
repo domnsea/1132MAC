@@ -122,6 +122,11 @@ fi
 grep -F 'exec "$ZOOM_BIN"' "$TEMP" >/dev/null || fail "guest launcher must exec the Zoom binary"
 grep -q 'lock_park_dir' "$TEMP" || fail "guest launcher must lock the park dir before Zoom"
 grep -q 'chown -R root:wheel' "$TEMP" || fail "park lock must chown to root so same-UID Zoom cannot read Keychain backups"
+grep -q 'run_admin_cmd' "$TEMP" || fail "admin commands must run inline, not via a helper script file"
+grep -q 'quoted form of (item 1 of argv)' "$TEMP" || fail "admin command must be passed as an osascript argument"
+if grep -E '\.lock\.\$\$\.sh|\.unlock\.\$\$\.sh' "$TEMP"; then
+  fail "must not write a replaceable .lock/.unlock helper for root to reopen"
+fi
 grep -q 'killall coreaudiod' "$TEMP" || fail "guest launcher must restart CoreAudio so mics reappear"
 grep -q 'zAutoJoinVoip' "$TEMP" || fail "guest launcher must auto-join computer audio"
 pass "guest launcher unhang guards and microphone path"
@@ -222,8 +227,12 @@ if 'for dir in "$HOME/.zwtf_identity_park"/*' in body and 'rm -rf "$dir"' in bod
     raise SystemExit("leftover restore still deletes every leftover park")
 if "Removed leftover park after restore" not in body:
     raise SystemExit("leftover restore must only remove the park it restored")
-if "Dropping newer leftover park without restoring" not in body:
-    raise SystemExit("after oldest restore succeeds, newer leftover parks must be dropped without restore")
+if "Dropping newer leftover park without restoring" in body:
+    raise SystemExit("must not delete newer leftover parks without restoring them")
+if "Leaving newer leftover park in place" not in body:
+    raise SystemExit("newer leftover parks must be left in place after oldest restore")
+if "Other leftover parks remain" not in body:
+    raise SystemExit("must not start a new guest session while newer leftover parks remain")
 if "Leftover Keychain restore failed" not in body:
     raise SystemExit("leftover restore must keep a park when Keychain restore fails")
 if "Leftover file restore failed" not in body:
@@ -244,17 +253,20 @@ end = text.find("\nmain()")
 if start < 0 or end < 0:
     raise SystemExit("could not find cleanup")
 body = text[start:end]
+unlock_at = body.find("if ! unlock_park_dir")
 fail_at = body.find("if ! restore_display_name")
 file_at = body.find("if ! unpark_personal_zoom_files")
 kc_at = body.find("if ! unpark_zoom_keychain")
 rm_at = body.find("remove_park_dir")
-if fail_at < 0 or file_at < 0 or kc_at < 0 or rm_at < 0:
+if unlock_at < 0 or fail_at < 0 or file_at < 0 or kc_at < 0 or rm_at < 0:
     raise SystemExit("cleanup missing restore guards or remove_park_dir")
-if min(fail_at, file_at, kc_at) > rm_at:
+if min(unlock_at, fail_at, file_at, kc_at) > rm_at:
     raise SystemExit("cleanup removes park before checking restore")
-chunk = body[min(fail_at, file_at, kc_at):rm_at]
-if chunk.count("return 1") < 3:
-    raise SystemExit("cleanup must return before remove_park_dir when name, file, or Keychain restore fails")
+if unlock_at > fail_at:
+    raise SystemExit("cleanup must unlock the park before restore")
+chunk = body[unlock_at:rm_at]
+if chunk.count("return 1") < 4:
+    raise SystemExit("cleanup must return before remove_park_dir when unlock or restore fails")
 if "CLEANED_UP=1" in chunk:
     raise SystemExit("cleanup must not mark done while Keychain backup still exists")
 PY

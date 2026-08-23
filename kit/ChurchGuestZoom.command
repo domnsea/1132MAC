@@ -140,15 +140,23 @@ run_with_timeout() {
   return $?
 }
 
-run_admin() {
-  local f="$1"
+run_admin_cmd() {
+  local cmd="$1"
   if [[ "$(id -u)" -eq 0 ]]; then
-    /bin/bash "$f"
+    /bin/bash -c "$cmd"
     return $?
   fi
-  /usr/bin/osascript <<OSA
-do shell script ("/bin/bash " & quoted form of "$f") with administrator privileges
+  # Command is passed as an osascript argument and re-quoted there.
+  # Do not write a helper script for root to reopen by path.
+  /usr/bin/osascript - "$cmd" <<'OSA'
+on run argv
+  do shell script ("/bin/bash -c " & quoted form of (item 1 of argv)) with administrator privileges
+end run
 OSA
+}
+
+sh_quote() {
+  printf "'%s'" "${1//\'/\'\\\'\'}"
 }
 
 generate_guest_name() {
@@ -519,15 +527,7 @@ set_guest_display_name() {
   printf '%s\n' "$ORIGINAL_REALNAME" > "$NAME_BACKUP_FILE"
   chmod 600 "$NAME_BACKUP_FILE" >>"$LOG_FILE" 2>&1 || true
   log "Saved macOS Full Name; setting session name to: $GUEST_DISPLAY_NAME"
-  cat > "$PARK_DIR/set_name.sh" <<EOF
-#!/bin/bash
-set -e
-dscl . -create "/Users/${CONSOLE_USER}" RealName "$GUEST_DISPLAY_NAME"
-scutil --set ComputerName "$GUEST_DISPLAY_NAME" || true
-dscacheutil -flushcache || true
-EOF
-  chmod 700 "$PARK_DIR/set_name.sh"
-  if run_admin "$PARK_DIR/set_name.sh" >>"$LOG_FILE" 2>&1; then
+  if run_admin_cmd "dscl . -create $(sh_quote "/Users/${CONSOLE_USER}") RealName $(sh_quote "$GUEST_DISPLAY_NAME") && scutil --set ComputerName $(sh_quote "$GUEST_DISPLAY_NAME") || true; dscacheutil -flushcache || true" >>"$LOG_FILE" 2>&1; then
     REALNAME_SAVED=1
     if [[ -s "$PARK_DIR/original_computername.txt" ]]; then
       COMPUTERNAME_SAVED=1
@@ -546,22 +546,10 @@ capture_computername_before_change() {
 # Keychain backups. sandbox-exec hid every microphone, including VB-Cable.
 unlock_park_dir() {
   local dir="$1"
-  local script
   [[ -n "$dir" && -e "$dir" ]] || return 0
-  mkdir -p "$HOME/.zwtf_identity_park"
-  script="$HOME/.zwtf_identity_park/.unlock.$$.sh"
-  cat > "$script" <<EOF
-#!/bin/bash
-chown -R "${CONSOLE_USER}" "$dir"
-chmod -R u+rwX "$dir"
-chmod 700 "$dir"
-if [ -d "$dir/kc" ]; then chmod 700 "$dir/kc"; fi
-EOF
-  chmod 700 "$script"
-  if run_admin "$script" >>"$LOG_FILE" 2>&1; then
-    rm -f "$script"
+  if run_admin_cmd "chown -R $(sh_quote "$CONSOLE_USER") $(sh_quote "$dir") && chmod -R u+rwX $(sh_quote "$dir") && chmod 700 $(sh_quote "$dir")" >>"$LOG_FILE" 2>&1; then
+    [[ -d "$dir/kc" ]] && chmod 700 "$dir/kc" 2>/dev/null || true
   else
-    rm -f "$script"
     chmod u+rwx "$dir" 2>/dev/null || true
     if [[ -d "$dir" ]]; then
       find "$dir" -exec chmod u+rwX {} + 2>/dev/null || true
@@ -577,25 +565,11 @@ EOF
 
 lock_park_dir() {
   local dir="$1"
-  local script
   [[ -d "$dir" ]] || return 1
-  mkdir -p "$HOME/.zwtf_identity_park"
-  script="$HOME/.zwtf_identity_park/.lock.$$.sh"
-  cat > "$script" <<EOF
-#!/bin/bash
-set -e
-chown -R root:wheel "$dir"
-chmod -R go-rwx "$dir"
-find "$dir" -type d -exec chmod 700 {} +
-find "$dir" -type f -exec chmod 600 {} +
-EOF
-  chmod 700 "$script"
-  if run_admin "$script" >>"$LOG_FILE" 2>&1; then
-    rm -f "$script"
+  if run_admin_cmd "chown -R root:wheel $(sh_quote "$dir") && chmod -R go-rwx $(sh_quote "$dir") && find $(sh_quote "$dir") -type d -exec chmod 700 {} + && find $(sh_quote "$dir") -type f -exec chmod 600 {} +" >>"$LOG_FILE" 2>&1; then
     log "Root-locked parked identity at $dir so Zoom cannot read Keychain backups."
     return 0
   fi
-  rm -f "$script"
   warn "Could not root-lock parked identity at $dir"
   return 1
 }
@@ -696,24 +670,20 @@ seed_guest_zoom_prefs() {
 
 restore_display_name_from() {
   local park="$1"
-  local name="" current="" expected_cn="" current_cn=""
+  local name="" current="" expected_cn="" current_cn="" cmd=""
   [[ -f "$park/original_realname.txt" ]] || return 0
   name="$(cat "$park/original_realname.txt")"
   [[ -n "$name" ]] || return 0
   log "Restoring macOS Full Name from $park"
-  printf '%s\n' "$name" > "$park/restore_realname.txt"
-  cat > "$park/restore_name.sh" <<EOF
-#!/bin/bash
-name=\$(cat "$park/restore_realname.txt")
-dscl . -create "/Users/${CONSOLE_USER}" RealName "\$name"
-EOF
+  cmd="dscl . -create $(sh_quote "/Users/${CONSOLE_USER}") RealName $(sh_quote "$name")"
   if [[ -f "$park/original_computername.txt" ]]; then
-    printf 'cname=$(cat "%s")\n' "$park/original_computername.txt" >> "$park/restore_name.sh"
-    printf 'if [ -n "$cname" ]; then scutil --set ComputerName "$cname"; fi\n' >> "$park/restore_name.sh"
+    expected_cn="$(cat "$park/original_computername.txt")"
+    if [[ -n "$expected_cn" ]]; then
+      cmd="$cmd && scutil --set ComputerName $(sh_quote "$expected_cn")"
+    fi
   fi
-  printf 'dscacheutil -flushcache || true\n' >> "$park/restore_name.sh"
-  chmod 700 "$park/restore_name.sh"
-  if ! run_admin "$park/restore_name.sh" >>"$LOG_FILE" 2>&1; then
+  cmd="$cmd; dscacheutil -flushcache || true"
+  if ! run_admin_cmd "$cmd" >>"$LOG_FILE" 2>&1; then
     warn "Could not restore Full Name. Backup is on your Desktop: $NAME_BACKUP_FILE"
     return 1
   fi
@@ -739,18 +709,23 @@ restore_display_name() {
 }
 
 restore_leftover_parks() {
-  local dir oldest=""
+  local dir oldest="" extra leftover_left=0
   [[ -d "$HOME/.zwtf_identity_park" ]] || return 0
   # RUN_ID is a timestamp. The oldest leftover is the original gamer identity.
   # Restoring every leftover in a loop would discard the first restore.
   for dir in "$HOME/.zwtf_identity_park"/*; do
     [[ -d "$dir" ]] || continue
     [[ "$dir" == "$PARK_DIR" ]] && continue
+    leftover_left=1
     if [[ -z "$oldest" || "$dir" < "$oldest" ]]; then
       oldest="$dir"
     fi
   done
   [[ -n "$oldest" ]] || return 0
+  if identity_still_visible; then
+    warn "Leftover parks exist but personal Zoom files are already in place. Not restoring leftovers over them."
+    return 1
+  fi
   log "Restoring oldest leftover parked Zoom identity from $oldest"
   unlock_park_dir "$oldest" || {
     warn "Could not unlock leftover park $oldest; leaving it in place."
@@ -773,19 +748,17 @@ restore_leftover_parks() {
   fi
   rm -rf "$oldest" >>"$LOG_FILE" 2>&1 || true
   log "Removed leftover park after restore: $oldest"
+  leftover_left=0
   for extra in "$HOME/.zwtf_identity_park"/*; do
     [[ -d "$extra" ]] || continue
     [[ "$extra" == "$PARK_DIR" ]] && continue
-    log "Dropping newer leftover park without restoring: $extra"
-    if ! rm -rf "$extra" >>"$LOG_FILE" 2>&1; then
-      unlock_park_dir "$extra" || true
-      rm -rf "$extra" >>"$LOG_FILE" 2>&1 || true
-    fi
-    if [[ -d "$extra" ]]; then
-      warn "Could not remove newer leftover park $extra. Not starting a new guest session."
-      return 1
-    fi
+    leftover_left=1
+    log "Leaving newer leftover park in place: $extra"
   done
+  if [[ "$leftover_left" -eq 1 ]]; then
+    warn "Oldest identity restored. Other leftover parks remain. Not starting a new guest session."
+    return 1
+  fi
 }
 
 launch_guest_zoom() {
@@ -866,7 +839,11 @@ cleanup() {
     log "Parked identity remains in $PARK_DIR. Desktop backup: $NAME_BACKUP_FILE. Restore will retry on exit."
     return 1
   fi
-  unlock_park_dir "$PARK_DIR"
+  if ! unlock_park_dir "$PARK_DIR"; then
+    warn "Could not unlock parked identity. Enter your Mac password when asked. Restore will retry."
+    CLEANED_UP=0
+    return 1
+  fi
   if ! restore_display_name; then
     warn "Display-name restore failed. Keeping $PARK_DIR so the next launch can retry. Do not delete this folder."
     lock_park_dir "$PARK_DIR"
