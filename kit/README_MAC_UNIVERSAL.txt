@@ -1,19 +1,26 @@
 BALLROOM MAC UNIVERSAL ZOOM KIT
 
-Use ZoomTempUser_Launch.command for a church/guest Zoom session that cannot
-see your personal/gamer Zoom login or screen name.
+Church / guest session: download ChurchGuestZoom-20260823F.zip and run
+ChurchGuestZoom.app (right-click ? Open). A window must appear immediately.
 
-HOW TO USE
+Do not use this reset zip for church. Do not open a raw .command from GitHub.
 
-1. Double-click ZoomTempUser_Launch.command on the Mac desktop
-2. Enter your Mac password if asked
-3. If Keychain Access asks, click Allow
-4. Zoom opens as a guest. Screen name is Guest
-5. Sign in with the church Zoom account if you need it
-6. Leave Terminal open. When you quit Zoom, your gamer login is restored
+HOW TO USE THE APP
 
-To use a different guest screen name, edit GUEST_DISPLAY_NAME at the top of
-ZoomTempUser_Launch.command before you run it.
+1. Quit 1132wtf-v94
+2. Right-click ChurchGuestZoom.app ? Open
+3. Click Continue, enter your Mac password if asked
+4. Click Allow if Keychain Access asks
+5. Zoom opens with a random 6-digit screen name
+6. Leave the app in the Dock. When you quit Zoom, gamer login is restored
+
+WHY EARLIER BUILDS DID NOTHING
+
+The .command could be saved as text, or hang with no window on:
+sudo password (no TTY), AppleEvent-quit of a stuck End Meeting dialog,
+missing python3 on Monterey, or a full search of ~/Library.
+
+Build F is an .app. Dialog is the first action. Those hang paths are gone.
 
 WHY THE GAMER NAME KEPT SHOWING
 
@@ -21,14 +28,11 @@ Zoom was being started with the normal Open command. That always reloads this
 Mac account's Zoom profile, the Zoom Safe Meeting Storage keychain item, and
 your macOS Full Name.
 
-This launcher parks those, then starts Zoom with sandbox-exec from Terminal.
-
-If Keychain asks and you click Deny, your gamer login stays visible and the
-script will refuse to start Zoom.
+This launcher parks those, then starts Zoom with sandbox-exec — not open.
 
 RESET SCRIPT
 
 ZoomReset_Universal_Mac.command wipes leftover Zoom files. It can delete
-local recordings.
+local recordings. It is not the church guest launcher.
 
-Run either script from the desktop, not SSH, and not with sudo.
+Run from the desktop, not SSH, and not with sudo.

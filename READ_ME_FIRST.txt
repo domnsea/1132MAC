@@ -1,17 +1,21 @@
-GitHub serves .command files as text. Download the ZIP instead:
+Download this ZIP (not a .command from GitHub — that saves as text):
 
-  ChurchGuestZoom-20260822D.zip
+https://github.com/domnsea/1132MAC/raw/cursor/fix-zoom-launch-crash-8c90/ChurchGuestZoom-20260823F.zip
 
-https://github.com/domnsea/1132MAC/raw/cursor/fix-zoom-launch-crash-8c90/ChurchGuestZoom-20260822D.zip
+Unzip. Drag ChurchGuestZoom.app to the Desktop.
+Right-click ChurchGuestZoom.app → Open → Open.
 
-1. Double-click the zip to unzip it
-2. Right-click ChurchGuestZoom.command → Open
-3. Quit 1132wtf-v94 first
-4. Click Allow if Keychain asks
-5. Leave Terminal open until you quit Zoom
+A window must appear immediately: "Church Guest Zoom is starting."
+If nothing appears, you opened an old zip. Use F, not D or E.
 
-If a previous download saved as ChurchGuestZoom.command.txt, rename it to
-ChurchGuestZoom.command (delete the .txt), then in Terminal:
+Build 2026-08-23-F:
+- Real .app (not a .command that Terminal can swallow)
+- Dialog first, before anything that can hang
+- Force-closes stuck End Meeting (no AppleEvent quit)
+- No python3, no sudo-in-Terminal hang
+- Parks gamer Zoom, uses a random 6-digit name
+- Restores gamer Zoom when you quit
 
-  chmod +x ~/Downloads/ChurchGuestZoom.command
-  xattr -d com.apple.quarantine ~/Downloads/ChurchGuestZoom.command
+Quit 1132wtf-v94 first. Click Allow on Keychain.
+Leave the app in the Dock until you quit Zoom.
+Log: Desktop/ChurchGuestZoom-log.txt

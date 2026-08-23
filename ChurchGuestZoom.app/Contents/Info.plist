@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>en</string>
+  <key>CFBundleExecutable</key>
+  <string>ChurchGuestZoom</string>
+  <key>CFBundleIdentifier</key>
+  <string>wtf.1132.churchguestzoom</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundleName</key>
+  <string>Church Guest Zoom</string>
+  <key>CFBundleDisplayName</key>
+  <string>Church Guest Zoom</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>2026.08.23.F</string>
+  <key>CFBundleVersion</key>
+  <string>20260823F</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>10.13</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+  <key>LSUIElement</key>
+  <false/>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>Church Guest Zoom shows status dialogs and asks for your Mac password only to hide and restore your display name.</string>
+</dict>
+</plist>

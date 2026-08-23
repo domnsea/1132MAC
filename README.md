@@ -2,26 +2,31 @@
 
 Guest Zoom session plus a hard reset. **Do not use if you have unsaved Zoom recordings you need to keep in the current session.**
 
-Download `BALLROOM_Mac_Universal_Reset_Kit.zip`.
+## Church / guest Zoom (use this)
 
-## Guest session (hide gamer Zoom from church)
+Download **`ChurchGuestZoom-20260823F.zip`** only:
 
-Use **ZoomTempUser_Launch.command**.
+https://github.com/domnsea/1132MAC/raw/cursor/fix-zoom-launch-crash-8c90/ChurchGuestZoom-20260823F.zip
 
-Earlier builds used `/usr/bin/open`. That always starts Zoom as this Mac account, so it reloads `zoomus.enc.db`, Keychain **Zoom Safe Meeting Storage**, and your macOS Full Name — which is why the gamer screen name kept appearing.
+Unzip, drag **`ChurchGuestZoom.app`** to the Desktop, then **right-click → Open**.
 
-This version:
+A window must appear immediately. If it does not, this is the wrong zip (older builds were a `.command` that could open and do nothing).
 
-1. Parks personal Zoom files (including `zoomus.enc.db`)
-2. Parks Zoom Keychain logins (click **Allow** if asked)
-3. Sets this session’s screen name to `Guest` (edit `GUEST_DISPLAY_NAME` at the top of the script)
-4. Starts Zoom with `sandbox-exec` on the Zoom binary from Terminal — not `open`
-5. Restores your gamer Zoom login and name when you quit Zoom
+Build F:
 
-If it cannot hide the personal identity, it will not launch.
+1. Force-closes stuck **End Meeting** windows (no AppleEvent quit — that hung forever)
+2. Parks personal Zoom files, including `zoomus.enc.db` and `zoommeeting.enc.db`
+3. Parks Zoom Keychain logins including **Zoom Safe Meeting Storage**
+4. Sets this session’s screen name to a **random 6-digit code**
+5. Starts Zoom with `sandbox-exec` on the Zoom binary — not `open`, not `bsexec`
+6. Restores gamer Zoom when you quit Zoom
+
+Quit **1132wtf-v94** first. Click **Allow** on Keychain. Leave the app in the Dock until Zoom quits. Log: `Desktop/ChurchGuestZoom-log.txt`.
+
+Do not download a raw `.command` from GitHub (browsers save that as text). Do not use `BALLROOM_Mac_Universal_Reset_Kit.zip` for church.
 
 ## Reset kit
 
-`ZoomReset_Universal_Mac.command` wipes leftover Zoom files.
+`ZoomReset_Universal_Mac.command` wipes leftover Zoom files. It can delete local recordings.
 
 See `kit/README_MAC_UNIVERSAL.txt`.
