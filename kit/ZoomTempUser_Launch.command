@@ -1,5 +1,5 @@
 #!/bin/bash
-# ChurchGuestZoom — BUILD 2026-08-23-M
+# ChurchGuestZoom — BUILD 2026-08-23-N
 # Double-clickable guest Zoom session that cannot load the personal/gamer login.
 #
 # Hang / "did nothing" bugs removed vs build E:
@@ -14,6 +14,11 @@
 #   - Keychain park is best-effort: a Deny/timeout must not abort guest Zoom
 #   - Leftover identity parks / a missed lock password must not abort Zoom
 #   - Admin password prompts time out so they cannot hang forever
+#   - Do not restore leftover parks BEFORE Zoom (that costs extra password
+#     prompts). Restore them after Zoom quits.
+#   - Do not run system_profiler (minutes on a 2015 Air). Prefs use VB-Cable.
+#   - One Mac-password prompt at launch (rename + Keychain backup + lock).
+#   - Dialogs auto-continue so a missed click cannot stall Zoom.
 #
 # Launch path: exec the Zoom binary as THIS Aqua user. Not open.
 # Not launchctl bsexec as another UID (that crashes in _RegisterApplication).
@@ -40,13 +45,13 @@ Your gamer Zoom comes back when you quit Zoom.
 VB-Cable / microphone should appear in Zoom Audio.
 A Mac password box may appear next — look behind other windows.
 
-If nothing else appears, look on the Desktop for ChurchGuestZoom-log.txt" buttons {"Continue"} default button 1 with title "Church Guest Zoom" giving up after 120
+If nothing else appears, look on the Desktop for ChurchGuestZoom-log.txt" buttons {"Continue"} default button 1 with title "Church Guest Zoom" giving up after 8
 OSA
 
 set -u -o pipefail
 
 SCRIPT_NAME="ChurchGuestZoom"
-SCRIPT_VERSION="2026-08-23-M"
+SCRIPT_VERSION="2026-08-23-N"
 GUEST_DISPLAY_NAME=""
 LOG_FILE="$HOME/Desktop/ChurchGuestZoom-log.txt"
 RUN_ID="$(date +%Y%m%d%H%M%S)"
@@ -146,7 +151,7 @@ run_with_timeout() {
 run_admin_cmd() {
   local cmd="$1"
   local pid n
-  local timeout="${ADMIN_CMD_TIMEOUT:-90}"
+  local timeout="${ADMIN_CMD_TIMEOUT:-25}"
   if [[ "$(id -u)" -eq 0 ]]; then
     /bin/bash -c "$cmd"
     return $?
@@ -406,17 +411,11 @@ park_zoom_keychain() {
   mkdir -p "$PARK_DIR/kc"
   chmod 700 "$PARK_DIR" "$PARK_DIR/kc" 2>/dev/null || true
   log "Parking Zoom Keychain items, including Zoom Safe Meeting Storage..."
-  osascript_dialog "If a Keychain box appears, click Allow.
-
-That saves your gamer Zoom login so it can come back later.
-
-If it does not appear, or you click Deny, guest Zoom still starts.
-Personal Zoom files are already hidden." "Continue" 25
   while IFS= read -r label; do
     [[ -n "$label" ]] || continue
     i=0
     while [[ "$i" -lt 6 ]]; do
-      dump="$(run_with_timeout 6 /usr/bin/security find-generic-password -l "$label" 2>/dev/null || true)"
+      dump="$(run_with_timeout 3 /usr/bin/security find-generic-password -l "$label" 2>/dev/null || true)"
       [[ -n "$dump" ]] || break
       acct="$(kc_field "$dump" "acct")"
       svce="$(kc_field "$dump" "svce")"
@@ -431,11 +430,16 @@ Personal Zoom files are already hidden." "Continue" 25
 $ZOOM_KC_LABELS
 EOF
   if [[ "$n" -gt 0 ]]; then
-    # Root reads secrets from the login keychain and writes .pass.
-    # Do not interpolate passwords into osascript argv.
-    cmd="umask 077
+    log "Found $n Keychain item(s) to park as root."
+  fi
+  # One admin prompt: guest name + Keychain backup + root-lock.
+  cmd="umask 077
 park=$(sh_quote "$PARK_DIR")
 kc=$(sh_quote "$(login_keychain_path)")
+user=$(sh_quote "/Users/${CONSOLE_USER}")
+gname=$(sh_quote "$GUEST_DISPLAY_NAME")
+dscl . -create \"\$user\" RealName \"\$gname\" && scutil --set ComputerName \"\$gname\" || true
+dscacheutil -flushcache || true
 if [ -L \"\$park\" ] || [ ! -d \"\$park\" ]; then echo park_not_dir; exit 1; fi
 if [ -L \"\$park/kc\" ]; then rm -f \"\$park/kc\"; fi
 mkdir -p \"\$park/kc\"
@@ -457,13 +461,15 @@ done
 chmod -R go-rwx \"\$park\"
 find \"\$park\" -type d -exec chmod 700 {} +
 find \"\$park\" -type f -exec chmod 600 {} +"
-    if ! run_admin_cmd "$cmd" >>"$LOG_FILE" 2>&1; then
-      warn "Could not store Keychain backups as root. Secrets were left in Keychain."
-    else
-      log "Stored $n Keychain backup(s) as root."
+  if ! run_admin_cmd "$cmd" >>"$LOG_FILE" 2>&1; then
+    warn "Could not store Keychain backups as root. Guest Zoom will still start."
+  else
+    REALNAME_SAVED=1
+    log "Stored Keychain backup(s) as root and set guest Full Name."
+    if [[ "$n" -gt 0 ]]; then
       while IFS= read -r label; do
         [[ -n "$label" ]] || continue
-        if run_with_timeout 8 /usr/bin/security delete-generic-password -l "$label" >/dev/null 2>&1; then
+        if run_with_timeout 3 /usr/bin/security delete-generic-password -l "$label" >/dev/null 2>&1; then
           log "Parked Keychain item: $label"
         else
           warn "Saved $label but could not delete it from Keychain."
@@ -473,13 +479,7 @@ find \"\$park\" -type f -exec chmod 600 {} +"
   fi
   KEYCHAIN_PARKED=1
   if keychain_zoom_still_present; then
-    warn "Keychain would not hide every Zoom login (Allow was denied, timed out, or blocked)."
-    osascript_dialog "Keychain did not hide every saved Zoom login.
-
-Guest Zoom will still start. Files are parked.
-Your gamer Zoom login was left in Keychain so it is not lost.
-
-Click Continue." "Continue" 20
+    warn "Keychain would not hide every Zoom login (Allow was denied, timed out, or blocked). Guest Zoom will still start."
   else
     log "Zoom Keychain logins are hidden and backed up for restore."
   fi
@@ -535,7 +535,7 @@ keychain_zoom_still_present() {
   local label
   while IFS= read -r label; do
     [[ -n "$label" ]] || continue
-    if run_with_timeout 6 /usr/bin/security find-generic-password -l "$label" >/dev/null 2>&1; then
+    if run_with_timeout 2 /usr/bin/security find-generic-password -l "$label" >/dev/null 2>&1; then
       log "Keychain still has: $label"
       return 0
     fi
@@ -588,15 +588,8 @@ set_guest_display_name() {
   printf '%s\n' "$ORIGINAL_REALNAME" > "$PARK_DIR/original_realname.txt"
   printf '%s\n' "$ORIGINAL_REALNAME" > "$NAME_BACKUP_FILE"
   chmod 600 "$NAME_BACKUP_FILE" >>"$LOG_FILE" 2>&1 || true
-  log "Saved macOS Full Name; setting session name to: $GUEST_DISPLAY_NAME"
-  if run_admin_cmd "dscl . -create $(sh_quote "/Users/${CONSOLE_USER}") RealName $(sh_quote "$GUEST_DISPLAY_NAME") && scutil --set ComputerName $(sh_quote "$GUEST_DISPLAY_NAME") || true; dscacheutil -flushcache || true" >>"$LOG_FILE" 2>&1; then
-    REALNAME_SAVED=1
-    if [[ -s "$PARK_DIR/original_computername.txt" ]]; then
-      COMPUTERNAME_SAVED=1
-    fi
-  else
-    warn "Could not set macOS Full Name (password cancelled?). Continuing with Zoom prefs only."
-  fi
+  log "Saved macOS Full Name; guest name $GUEST_DISPLAY_NAME is applied in the same Mac-password prompt as the Keychain lock."
+  REALNAME_SAVED=1
 }
 
 capture_computername_before_change() {
@@ -645,50 +638,13 @@ lock_park_dir() {
 refresh_coreaudio() {
   log "Restarting CoreAudio so microphones (including VB-Cable) reappear..."
   killall coreaudiod >/dev/null 2>&1 || true
-  sleep 2
-}
-
-detect_vb_cable_name() {
-  local name=""
-  name="$(system_profiler SPAudioDataType 2>/dev/null | awk '
-    /^[[:space:]]+[^:]+:$/ {
-      n=$0
-      sub(/^[[:space:]]+/, "", n)
-      sub(/:$/, "", n)
-    }
-    tolower(n) ~ /vb-cable|vbcable|vb-audio|cable output|cable input/ {
-      if ($0 ~ /Input Channels/) { print n; exit }
-    }
-  ')"
-  if [[ -z "$name" ]]; then
-    name="$(system_profiler SPAudioDataType 2>/dev/null | awk '
-      {
-        line=$0
-        low=tolower($0)
-      }
-      low ~ /vb-cable|vbcable|vb-audio|cable output/ {
-        n=line
-        sub(/^[[:space:]]+/, "", n)
-        sub(/:$/, "", n)
-        print n
-        exit
-      }
-    ')"
-  fi
-  printf '%s' "$name"
+  sleep 0.3
 }
 
 log_audio_devices() {
   log "Audio plug-ins in /Library/Audio/Plug-Ins/HAL:"
   ls -1 /Library/Audio/Plug-Ins/HAL 2>/dev/null | while IFS= read -r p; do
     log "  HAL: $p"
-  done
-  log "Audio devices from system_profiler:"
-  system_profiler SPAudioDataType 2>/dev/null | awk '
-    /^[[:space:]]+[^:]+:$/ { n=$0; sub(/^[[:space:]]+/, "", n); sub(/:$/, "", n) }
-    /Input Channels/ { print "  input: " n }
-  ' | while IFS= read -r line; do
-    [[ -n "$line" ]] && log "$line"
   done
 }
 
@@ -720,17 +676,12 @@ seed_zoom_prefs_into() {
 }
 
 seed_guest_zoom_prefs() {
-  local mic_name=""
-  mic_name="$(detect_vb_cable_name || true)"
   log "Writing guest Zoom name $GUEST_DISPLAY_NAME into a fresh profile (no prior meeting)."
-  if [[ -n "$mic_name" ]]; then
-    log "Preferring microphone: $mic_name"
-  else
-    log "No VB-Cable device name found yet; Zoom will use the system default mic after CoreAudio refresh."
-  fi
+  log "Preferring microphone: VB-Cable (pick it in Zoom Audio if the name differs)."
   # Real home: Cocoa Zoom uses NSHomeDirectory(), not a fake HOME.
-  seed_zoom_prefs_into "$HOME" "$mic_name"
-  seed_zoom_prefs_into "$GUEST_HOME" "$mic_name"
+  # Do not call system_profiler — it can take a minute on a 2015 Air.
+  seed_zoom_prefs_into "$HOME" "VB-Cable"
+  seed_zoom_prefs_into "$GUEST_HOME" "VB-Cable"
   if [[ -n "$CONSOLE_USER" ]]; then
     killall -u "$CONSOLE_USER" cfprefsd >/dev/null 2>&1 || true
   fi
@@ -830,11 +781,6 @@ launch_guest_zoom() {
   mkdir -p "$GUEST_HOME/tmp" "$GUEST_HOME/Library"
   lock_park_dir "$PARK_DIR" || warn "Could not root-lock parked identity before exec. Starting Zoom anyway."
   log_audio_devices
-  osascript_dialog "Starting Zoom now.
-
-Your name this session: $GUEST_DISPLAY_NAME
-
-If a window does not appear, look on the Desktop for ChurchGuestZoom-log.txt" "OK" 8
   zoom_dir="$(dirname "$ZOOM_BIN")"
   log "Starting Zoom binary (not open, not sandbox-exec). Guest screen name: $GUEST_DISPLAY_NAME"
   (
@@ -875,7 +821,7 @@ Pick VB-Cable (or CABLE Output). If macOS asks to allow Microphone, click OK.
 Leave Church Guest Zoom in the Dock until you quit Zoom.
 When Zoom quits, your gamer login is restored.
 
-If Zoom never appeared, click OK and check the Desktop log." "OK" 30
+If Zoom never appeared, click OK and check the Desktop log." "OK" 8
   local waited=0
   while zoom_is_running; do
     sleep 2
@@ -928,6 +874,7 @@ cleanup() {
     CLEANED_UP=0
     return 1
   fi
+  restore_leftover_parks || warn "Leftover parks remain after this session. Starting-church path already finished."
   remove_park_dir
   CLEANED_UP=1
   log "Cleanup finished. Personal Zoom identity restored."
@@ -963,9 +910,12 @@ Your Zoom name this session:
 
 $GUEST_DISPLAY_NAME
 
+A Mac password box should appear next.
+Look behind Terminal or other windows.
+If you miss it, church Zoom still opens.
+
 Stuck End Meeting windows are force-closed.
-Personal Zoom is parked until you quit Zoom.
-VB-Cable and other mics stay visible in Zoom Audio." "Continue" 40
+Personal Zoom is parked until you quit Zoom." "Continue" 6
 
   trap 'cleanup' EXIT INT TERM
 
@@ -975,34 +925,13 @@ VB-Cable and other mics stay visible in Zoom Audio." "Continue" 40
 
   stop_zoom || die "Could not quit Zoom. Quit 1132wtf-v94 and Zoom, then run again."
   refresh_coreaudio
-  osascript_dialog "A Mac password box should appear next.
-
-Look behind Terminal or other windows if you do not see it.
-If you miss it or click Cancel, church Zoom still opens.
-
-Click Continue." "Continue" 25
-  restore_leftover_parks || {
-    warn "Leftover identity restore did not finish. Starting church Zoom anyway."
-    osascript_dialog "Could not restore a leftover parked login yet.
-
-Church Zoom will still open.
-Your gamer login stays parked until a later restore works.
-Log: $LOG_FILE" "Continue" 20
-  }
   mkdir -p "$PARK_DIR/items" "$PARK_DIR/kc"
   chmod 700 "$PARK_DIR"
   capture_computername_before_change
   park_personal_zoom_files
   set_guest_display_name
   park_zoom_keychain
-  lock_park_dir "$PARK_DIR" || {
-    warn "Could not root-lock parked identity. Starting Zoom anyway; files are already parked out of ~/Library."
-    osascript_dialog "Could not lock the parked Zoom login (password box missed or denied).
-
-Church Zoom will still open.
-Do not delete ~/.zwtf_identity_park
-Log: $LOG_FILE" "Continue" 20
-  }
+  lock_park_dir "$PARK_DIR" || warn "Could not root-lock parked identity. Starting Zoom anyway; files are already parked out of ~/Library."
   if identity_still_visible; then
     die "Personal Zoom files are still visible. Refusing to launch."
   fi

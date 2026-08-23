@@ -1,12 +1,12 @@
-CHURCH GUEST ZOOM — BUILD 2026-08-23-M
+CHURCH GUEST ZOOM — BUILD 2026-08-23-N
 
-Throw away zip L and earlier. Leftover parks from those runs
-used to stop Zoom from opening at all. Build M still opens Zoom.
+Throw away zip M and earlier. M was slow because it waited on leftover
+parks, extra dialogs, and system_profiler (very slow on a 2015 Air).
 
 HOW TO RUN (pick one)
 
 A. Right-click  ChurchGuestZoom-OPEN-ME.command  → Open → Open
-   Terminal should appear, then a dialog.
+   Terminal should appear, then a dialog (it continues on its own after a few seconds).
 
 B. Right-click  ChurchGuestZoom.app  → Open → Open
    A dialog should appear. Do not just double-click the first time.
@@ -16,7 +16,7 @@ If macOS says it is from an unidentified developer: Open anyway.
 Quit 1132wtf-v94 first. Click Allow if Keychain asks.
 If Keychain says no, guest Zoom still starts.
 
-A Mac password box may appear. Look behind Terminal or other
+One Mac password box may appear. Look behind Terminal or other
 windows. If you miss it, church Zoom still opens.
 
 After Zoom opens: Settings → Audio → Microphone → VB-Cable

@@ -17,9 +17,9 @@
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>2026.08.23.M</string>
+  <string>2026.08.23.N</string>
   <key>CFBundleVersion</key>
-  <string>20260823M</string>
+  <string>20260823N</string>
   <key>LSMinimumSystemVersion</key>
   <string>10.13</string>
   <key>NSHighResolutionCapable</key>

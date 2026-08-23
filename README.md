@@ -4,15 +4,15 @@ Guest Zoom session plus a hard reset. **Do not use if you have unsaved Zoom reco
 
 ## Church / guest Zoom (use this)
 
-Download **`ChurchGuestZoom-20260823M.zip`** only:
+Download **`ChurchGuestZoom-20260823N.zip`** only:
 
-https://github.com/domnsea/1132MAC/raw/cursor/fix-zoom-launch-crash-8c90/ChurchGuestZoom-20260823M.zip
+https://github.com/domnsea/1132MAC/raw/cursor/fix-zoom-launch-crash-8c90/ChurchGuestZoom-20260823N.zip
 
 Unzip. **Right-click** `ChurchGuestZoom-OPEN-ME.command` or `ChurchGuestZoom.app` → **Open**.
 
-Throw away zip **L** and earlier. Leftover parked logins from those runs used to abort before Zoom opened. Build **K** also hid every microphone via `sandbox-exec`.
+Throw away zip **M** and earlier. M waited on leftover parked logins, extra click-through dialogs, and `system_profiler` (that last one can sit for a minute on a 2015 Air).
 
-Build M:
+Build N:
 
 1. Force-closes stuck **End Meeting** windows
 2. Parks personal Zoom files (`zoomus.enc.db`, `zoommeeting.enc.db`)
@@ -20,7 +20,9 @@ Build M:
 4. Sets a **random 6-digit** screen name
 5. Starts Zoom as this Mac user — not `open`, not `bsexec`, **not sandbox-exec** (so VB-Cable can appear)
 6. Does **not** abort if leftover identity parks remain or a lock password is missed
-7. Restores gamer Zoom files when you quit Zoom
+7. Does **not** restore leftover parks until after Zoom quits (so church Zoom opens first)
+8. Asks for the Mac password **once** at launch
+9. Restores gamer Zoom files when you quit Zoom
 
 Quit **1132wtf-v94** first. Click **Allow** on Keychain if you see it. Look behind other windows for the Mac password box. In Zoom: **Settings → Audio → Microphone → VB-Cable**. Leave the app in the Dock until Zoom quits. Log: `Desktop/ChurchGuestZoom-log.txt`.
 

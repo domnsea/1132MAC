@@ -10,7 +10,7 @@ APP="$ROOT/ChurchGuestZoom.app/Contents/MacOS/ChurchGuestZoom"
 APP_SCRIPT="$ROOT/ChurchGuestZoom.app/Contents/Resources/launch.command"
 OPEN_CMD="$ROOT/ChurchGuestZoom-OPEN-ME.command"
 PLIST="$ROOT/ChurchGuestZoom.app/Contents/Info.plist"
-ZIP="$ROOT/ChurchGuestZoom-20260823M.zip"
+ZIP="$ROOT/ChurchGuestZoom-20260823N.zip"
 
 fail() {
   echo "FAIL: $*" >&2
@@ -132,9 +132,11 @@ grep -q 'restore_leftover_parks' "$TEMP" || fail "guest launcher must still try 
 if grep -F 'lock_park_dir "$PARK_DIR" || die' "$TEMP"; then
   fail "lock_park_dir must not abort church Zoom"
 fi
-grep -q 'Starting Zoom now' "$TEMP" || fail "guest launcher must show a Starting Zoom now dialog"
 grep -q 'A Mac password box should appear next' "$TEMP" || fail "guest launcher must warn that the password box can be behind other windows"
 grep -q 'Starting church Zoom anyway' "$TEMP" || fail "leftover parks must still start church Zoom"
+if noncomment "$TEMP" | grep -q system_profiler; then
+  fail "guest launcher must not run system_profiler (very slow on 2015 Air)"
+fi
 if grep -E '\.lock\.\$\$\.sh|\.unlock\.\$\$\.sh' "$TEMP"; then
   fail "must not write a replaceable .lock/.unlock helper for root to reopen"
 fi
@@ -312,8 +314,10 @@ if not (name_at < park_at < lock_at < id_at):
     raise SystemExit("lock must run immediately after parking Keychain, before launch work")
 launch_at = body.find("launch_guest_zoom")
 restore_at = body.find("restore_leftover_parks")
-if restore_at < 0 or launch_at < 0 or restore_at > launch_at:
-    raise SystemExit("main must try leftover restore and still launch Zoom")
+if launch_at < 0:
+    raise SystemExit("main must launch Zoom")
+if restore_at >= 0 and restore_at < launch_at:
+    raise SystemExit("leftover restore before launch stalls Zoom")
 if 'restore_leftover_parks || die' in body:
     raise SystemExit("main leftover restore must not die")
 if 'lock_park_dir "$PARK_DIR" || die' in body:
@@ -344,6 +348,8 @@ if chunk.count("return 1") < 4:
     raise SystemExit("cleanup must return before remove_park_dir when unlock or restore fails")
 if "CLEANED_UP=1" in chunk:
     raise SystemExit("cleanup must not mark done while Keychain backup still exists")
+if "restore_leftover_parks" not in body:
+    raise SystemExit("cleanup must restore leftover parks after Zoom quits")
 PY
 pass "guest launcher identity isolation"
 
@@ -399,14 +405,14 @@ with zipfile.ZipFile(zpath) as zf:
     if cmdmode & 0o111 == 0:
         raise SystemExit("OPEN-ME.command in zip is not executable (mode=%o)" % cmdmode)
     data = zf.read("ChurchGuestZoom.app/Contents/Resources/launch.command")
-    if b"2026-08-23-M" not in data:
-        raise SystemExit("zip launch.command is not build M")
+    if b"2026-08-23-N" not in data:
+        raise SystemExit("zip launch.command is not build N")
     if b"python3" in b"\n".join(line for line in data.splitlines() if not line.lstrip().startswith(b"#")):
         raise SystemExit("zip launcher still calls python3")
     if b"/usr/bin/sandbox-exec" in data or b"sandbox-exec -f" in data:
         raise SystemExit("zip launcher still uses sandbox-exec")
 print("zip ok")
 PY
-pass "zip ChurchGuestZoom-20260823M.zip contains Mach-O app and OPEN-ME.command"
+pass "zip ChurchGuestZoom-20260823N.zip contains Mach-O app and OPEN-ME.command"
 
 echo "All checks passed."
