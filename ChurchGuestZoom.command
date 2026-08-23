@@ -1,5 +1,5 @@
 #!/bin/bash
-# ChurchGuestZoom — BUILD 2026-08-23-L
+# ChurchGuestZoom — BUILD 2026-08-23-M
 # Double-clickable guest Zoom session that cannot load the personal/gamer login.
 #
 # Hang / "did nothing" bugs removed vs build E:
@@ -12,6 +12,8 @@
 #   - No security dump-keychain
 #   - Wait-for-quit watches zoom.us only, not leftover CptHost helpers
 #   - Keychain park is best-effort: a Deny/timeout must not abort guest Zoom
+#   - Leftover identity parks / a missed lock password must not abort Zoom
+#   - Admin password prompts time out so they cannot hang forever
 #
 # Launch path: exec the Zoom binary as THIS Aqua user. Not open.
 # Not launchctl bsexec as another UID (that crashes in _RegisterApplication).
@@ -36,6 +38,7 @@ display dialog "Church Guest Zoom is starting.
 This session uses a random 6-digit Zoom name.
 Your gamer Zoom comes back when you quit Zoom.
 VB-Cable / microphone should appear in Zoom Audio.
+A Mac password box may appear next — look behind other windows.
 
 If nothing else appears, look on the Desktop for ChurchGuestZoom-log.txt" buttons {"Continue"} default button 1 with title "Church Guest Zoom" giving up after 120
 OSA
@@ -43,7 +46,7 @@ OSA
 set -u -o pipefail
 
 SCRIPT_NAME="ChurchGuestZoom"
-SCRIPT_VERSION="2026-08-23-L"
+SCRIPT_VERSION="2026-08-23-M"
 GUEST_DISPLAY_NAME=""
 LOG_FILE="$HOME/Desktop/ChurchGuestZoom-log.txt"
 RUN_ID="$(date +%Y%m%d%H%M%S)"
@@ -142,17 +145,30 @@ run_with_timeout() {
 
 run_admin_cmd() {
   local cmd="$1"
+  local pid n
+  local timeout="${ADMIN_CMD_TIMEOUT:-90}"
   if [[ "$(id -u)" -eq 0 ]]; then
     /bin/bash -c "$cmd"
     return $?
   fi
   # Command is passed as an osascript argument and re-quoted there.
   # Do not write a helper script for root to reopen by path.
-  /usr/bin/osascript - "$cmd" <<'OSA'
-on run argv
-  do shell script ("/bin/bash -c " & quoted form of (item 1 of argv)) with administrator privileges
-end run
-OSA
+  # Time-bound: a password box behind another window used to hang forever.
+  /usr/bin/osascript -e 'on run argv' -e 'do shell script ("/bin/bash -c " & quoted form of (item 1 of argv)) with administrator privileges' -e 'end run' -- "$cmd" &
+  pid=$!
+  n=0
+  while kill -0 "$pid" 2>/dev/null; do
+    n=$((n + 1))
+    if [[ "$n" -ge "$timeout" ]]; then
+      kill -9 "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+      warn "Mac password prompt timed out after ${timeout}s (look behind other windows next time)."
+      return 124
+    fi
+    sleep 1
+  done
+  wait "$pid"
+  return $?
 }
 
 sh_quote() {
@@ -768,19 +784,21 @@ restore_leftover_parks() {
     log "Leaving newer leftover park in place: $extra"
   done
   if [[ "$leftover_left" -eq 1 ]]; then
-    warn "Oldest identity restored. Other leftover parks remain. Not starting a new guest session."
-    return 1
+    warn "Oldest identity restored. Other leftover parks remain. Starting church Zoom anyway."
+    return 0
   fi
 }
 
 launch_guest_zoom() {
   local zoom_dir
   mkdir -p "$GUEST_HOME/tmp" "$GUEST_HOME/Library"
-  lock_park_dir "$PARK_DIR" || die "Could not lock parked Zoom login.
-
-Enter your Mac password when asked, then run Church Guest Zoom again.
-Without that lock, guest Zoom is not started."
+  lock_park_dir "$PARK_DIR" || warn "Could not root-lock parked identity before exec. Starting Zoom anyway."
   log_audio_devices
+  osascript_dialog "Starting Zoom now.
+
+Your name this session: $GUEST_DISPLAY_NAME
+
+If a window does not appear, look on the Desktop for ChurchGuestZoom-log.txt" "OK" 8
   zoom_dir="$(dirname "$ZOOM_BIN")"
   log "Starting Zoom binary (not open, not sandbox-exec). Guest screen name: $GUEST_DISPLAY_NAME"
   (
@@ -921,24 +939,34 @@ VB-Cable and other mics stay visible in Zoom Audio." "Continue" 40
 
   stop_zoom || die "Could not quit Zoom. Quit 1132wtf-v94 and Zoom, then run again."
   refresh_coreaudio
-  restore_leftover_parks || die "Could not restore the previous Zoom identity.
+  osascript_dialog "A Mac password box should appear next.
 
-Enter your Mac password if asked, and click Allow if Keychain asks.
-Then run Church Guest Zoom again.
+Look behind Terminal or other windows if you do not see it.
+If you miss it or click Cancel, church Zoom still opens.
 
-Do not start another guest session until this restore works.
-Desktop name backup: $NAME_BACKUP_FILE
-Log: $LOG_FILE"
+Click Continue." "Continue" 25
+  restore_leftover_parks || {
+    warn "Leftover identity restore did not finish. Starting church Zoom anyway."
+    osascript_dialog "Could not restore a leftover parked login yet.
+
+Church Zoom will still open.
+Your gamer login stays parked until a later restore works.
+Log: $LOG_FILE" "Continue" 20
+  }
   mkdir -p "$PARK_DIR/items" "$PARK_DIR/kc"
   chmod 700 "$PARK_DIR"
   capture_computername_before_change
   park_personal_zoom_files
   set_guest_display_name
   park_zoom_keychain
-  lock_park_dir "$PARK_DIR" || die "Could not lock parked Zoom login.
+  lock_park_dir "$PARK_DIR" || {
+    warn "Could not root-lock parked identity. Starting Zoom anyway; files are already parked out of ~/Library."
+    osascript_dialog "Could not lock the parked Zoom login (password box missed or denied).
 
-Enter your Mac password when asked, then run Church Guest Zoom again.
-Without that lock, guest Zoom is not started."
+Church Zoom will still open.
+Do not delete ~/.zwtf_identity_park
+Log: $LOG_FILE" "Continue" 20
+  }
   if identity_still_visible; then
     die "Personal Zoom files are still visible. Refusing to launch."
   fi

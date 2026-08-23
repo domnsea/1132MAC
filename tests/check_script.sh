@@ -10,7 +10,7 @@ APP="$ROOT/ChurchGuestZoom.app/Contents/MacOS/ChurchGuestZoom"
 APP_SCRIPT="$ROOT/ChurchGuestZoom.app/Contents/Resources/launch.command"
 OPEN_CMD="$ROOT/ChurchGuestZoom-OPEN-ME.command"
 PLIST="$ROOT/ChurchGuestZoom.app/Contents/Info.plist"
-ZIP="$ROOT/ChurchGuestZoom-20260823L.zip"
+ZIP="$ROOT/ChurchGuestZoom-20260823M.zip"
 
 fail() {
   echo "FAIL: $*" >&2
@@ -124,6 +124,17 @@ grep -q 'lock_park_dir' "$TEMP" || fail "guest launcher must lock the park dir b
 grep -q 'chown -R root:wheel' "$TEMP" || fail "park lock must chown to root so same-UID Zoom cannot read Keychain backups"
 grep -q 'run_admin_cmd' "$TEMP" || fail "admin commands must run inline, not via a helper script file"
 grep -q 'quoted form of (item 1 of argv)' "$TEMP" || fail "admin command must be passed as an osascript argument"
+grep -q 'ADMIN_CMD_TIMEOUT' "$TEMP" || fail "admin password prompts must time out so they cannot hang forever"
+if grep -q 'restore_leftover_parks || die' "$TEMP"; then
+  fail "leftover restore must not abort church Zoom"
+fi
+grep -q 'restore_leftover_parks' "$TEMP" || fail "guest launcher must still try leftover restore"
+if grep -F 'lock_park_dir "$PARK_DIR" || die' "$TEMP"; then
+  fail "lock_park_dir must not abort church Zoom"
+fi
+grep -q 'Starting Zoom now' "$TEMP" || fail "guest launcher must show a Starting Zoom now dialog"
+grep -q 'A Mac password box should appear next' "$TEMP" || fail "guest launcher must warn that the password box can be behind other windows"
+grep -q 'Starting church Zoom anyway' "$TEMP" || fail "leftover parks must still start church Zoom"
 if grep -E '\.lock\.\$\$\.sh|\.unlock\.\$\$\.sh' "$TEMP"; then
   fail "must not write a replaceable .lock/.unlock helper for root to reopen"
 fi
@@ -219,7 +230,6 @@ if "keeping park dir" not in body:
 if "Keychain already has" not in body:
     raise SystemExit("unpark_zoom_keychain must skip items already restored on retry")
 PY
-grep -q 'restore_leftover_parks || die' "$TEMP" || fail "guest launcher must abort if leftover restore fails"
 grep -q 'oldest leftover parked Zoom identity' "$TEMP" || fail "leftover restore must use the oldest park only"
 python3 - "$TEMP" <<'PY' || fail "leftover restore must not delete every leftover park"
 import sys
@@ -239,7 +249,11 @@ if "Dropping newer leftover park without restoring" in body:
 if "Leaving newer leftover park in place" not in body:
     raise SystemExit("newer leftover parks must be left in place after oldest restore")
 if "Other leftover parks remain" not in body:
-    raise SystemExit("must not start a new guest session while newer leftover parks remain")
+    raise SystemExit("must warn when newer leftover parks remain")
+if "Not starting a new guest session" in body:
+    raise SystemExit("leftover extras must not abort the guest session")
+if "Starting church Zoom anyway" not in body:
+    raise SystemExit("leftover extras must still start church Zoom")
 if "Leftover Keychain restore failed" not in body:
     raise SystemExit("leftover restore must keep a park when Keychain restore fails")
 if "Leftover file restore failed" not in body:
@@ -280,6 +294,14 @@ if min(name_at, park_at, lock_at, id_at) < 0:
     raise SystemExit("main missing lock/park steps")
 if not (name_at < park_at < lock_at < id_at):
     raise SystemExit("lock must run immediately after parking Keychain, before launch work")
+launch_at = body.find("launch_guest_zoom")
+restore_at = body.find("restore_leftover_parks")
+if restore_at < 0 or launch_at < 0 or restore_at > launch_at:
+    raise SystemExit("main must try leftover restore and still launch Zoom")
+if 'restore_leftover_parks || die' in body:
+    raise SystemExit("main leftover restore must not die")
+if 'lock_park_dir "$PARK_DIR" || die' in body:
+    raise SystemExit("main park lock must not die")
 PY
 python3 - "$TEMP" <<'PY' || fail "cleanup must not delete the park if file or Keychain restore fails"
 import sys
@@ -361,14 +383,14 @@ with zipfile.ZipFile(zpath) as zf:
     if cmdmode & 0o111 == 0:
         raise SystemExit("OPEN-ME.command in zip is not executable (mode=%o)" % cmdmode)
     data = zf.read("ChurchGuestZoom.app/Contents/Resources/launch.command")
-    if b"2026-08-23-L" not in data:
-        raise SystemExit("zip launch.command is not build L")
+    if b"2026-08-23-M" not in data:
+        raise SystemExit("zip launch.command is not build M")
     if b"python3" in b"\n".join(line for line in data.splitlines() if not line.lstrip().startswith(b"#")):
         raise SystemExit("zip launcher still calls python3")
     if b"/usr/bin/sandbox-exec" in data or b"sandbox-exec -f" in data:
         raise SystemExit("zip launcher still uses sandbox-exec")
 print("zip ok")
 PY
-pass "zip ChurchGuestZoom-20260823L.zip contains Mach-O app and OPEN-ME.command"
+pass "zip ChurchGuestZoom-20260823M.zip contains Mach-O app and OPEN-ME.command"
 
 echo "All checks passed."

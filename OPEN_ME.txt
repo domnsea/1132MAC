@@ -1,7 +1,7 @@
-CHURCH GUEST ZOOM — BUILD 2026-08-23-L
+CHURCH GUEST ZOOM — BUILD 2026-08-23-M
 
-Throw away zip K. It hid every microphone (including VB-Cable)
-because Zoom ran inside sandbox-exec.
+Throw away zip L and earlier. Leftover parks from those runs
+used to stop Zoom from opening at all. Build M still opens Zoom.
 
 HOW TO RUN (pick one)
 
@@ -15,6 +15,9 @@ If macOS says it is from an unidentified developer: Open anyway.
 
 Quit 1132wtf-v94 first. Click Allow if Keychain asks.
 If Keychain says no, guest Zoom still starts.
+
+A Mac password box may appear. Look behind Terminal or other
+windows. If you miss it, church Zoom still opens.
 
 After Zoom opens: Settings → Audio → Microphone → VB-Cable
 (or CABLE Output). If macOS asks to allow Microphone for Zoom, click OK.
