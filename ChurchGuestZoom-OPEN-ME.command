@@ -344,6 +344,7 @@ kc_field() {
 park_zoom_keychain() {
   local label dump acct svce pass n=0 i
   mkdir -p "$PARK_DIR/kc"
+  chmod 700 "$PARK_DIR" "$PARK_DIR/kc" 2>/dev/null || true
   log "Parking Zoom Keychain items, including Zoom Safe Meeting Storage..."
   osascript_dialog "If a Keychain box appears, click Allow.
 
@@ -590,18 +591,7 @@ wait_for_zoom_start() {
       return 0
     fi
     if [[ -n "$SANDBOX_PID" ]] && ! kill -0 "$SANDBOX_PID" 2>/dev/null; then
-      log "sandbox-exec exited before Zoom appeared; trying direct exec (still not open)."
-      (
-        export HOME="$GUEST_HOME"
-        export TMPDIR="$GUEST_HOME/tmp"
-        exec "$ZOOM_BIN"
-      ) >>"$LOG_FILE" 2>&1 &
-      SANDBOX_PID=$!
-      sleep 3
-      if zoom_is_running; then
-        log "Zoom is running via direct exec."
-        return 0
-      fi
+      log "sandbox-exec exited before Zoom appeared; not launching Zoom unsandboxed (Keychain backup is in the park dir)."
       break
     fi
   done

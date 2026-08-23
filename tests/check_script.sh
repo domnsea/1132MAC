@@ -116,6 +116,9 @@ grep -q 'run_with_timeout' "$TEMP" || fail "guest launcher must time-bound Keych
 grep -q 'giving up after' "$TEMP" || fail "guest launcher dialogs must give up so they cannot hang forever"
 grep -q 'killall -9' "$TEMP" || fail "guest launcher must force-kill Zoom"
 grep -q 'pgrep -x "zoom.us"' "$TEMP" || fail "wait-for-quit must watch zoom.us only, not CptHost"
+if grep -F 'exec "$ZOOM_BIN"' "$TEMP"; then
+  fail "guest launcher must not exec Zoom unsandboxed (Keychain backup lives in the park dir)"
+fi
 pass "guest launcher unhang guards"
 
 grep -q 'sandbox-exec' "$TEMP" || fail "guest launcher must use sandbox-exec"
