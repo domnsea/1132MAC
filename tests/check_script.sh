@@ -187,6 +187,7 @@ if pass_at < 0 or pass_at > del_at:
 if "leaving it in place so it can be restored later" not in body:
     raise SystemExit("must skip delete when the secret cannot be read")
 PY
+grep -q 'restore_leftover_parks' "$TEMP" || fail "guest launcher must restore leftover parks on next run"
 pass "guest launcher identity isolation"
 
 # Proof of life is the first osascript, before set -u work.

@@ -311,19 +311,23 @@ discard_session_zoom_files() {
 }
 
 unpark_personal_zoom_files() {
+  local park="${1:-}"
   local n src
-  [[ "$FILES_PARKED" -eq 1 ]] || return 0
+  if [[ -z "$park" ]]; then
+    [[ "$FILES_PARKED" -eq 1 ]] || return 0
+    park="$PARK_DIR"
+  fi
   discard_session_zoom_files
-  [[ -f "$PARK_DIR/manifest.txt" ]] || return 0
-  log "Restoring personal Zoom files..."
+  [[ -f "$park/manifest.txt" ]] || return 0
+  log "Restoring personal Zoom files from $park ..."
   while IFS=$'\t' read -r n src; do
     [[ -n "$n" && -n "$src" ]] || continue
     mkdir -p "$(dirname "$src")"
     rm -rf "$src" >>"$LOG_FILE" 2>&1 || true
-    if [[ -e "$PARK_DIR/items/$n" || -L "$PARK_DIR/items/$n" ]]; then
-      mv "$PARK_DIR/items/$n" "$src" >>"$LOG_FILE" 2>&1 && log "Restored: $src" || warn "Could not restore: $src"
+    if [[ -e "$park/items/$n" || -L "$park/items/$n" ]]; then
+      mv "$park/items/$n" "$src" >>"$LOG_FILE" 2>&1 && log "Restored: $src" || warn "Could not restore: $src"
     fi
-  done < "$PARK_DIR/manifest.txt"
+  done < "$park/manifest.txt"
   if [[ -n "${CONSOLE_USER:-}" ]]; then
     killall -u "$CONSOLE_USER" cfprefsd >/dev/null 2>&1 || true
   fi
@@ -401,17 +405,21 @@ Click Continue." "Continue" 20
 }
 
 unpark_zoom_keychain() {
+  local park="${1:-}"
   local i label acct svce pass
-  [[ "$KEYCHAIN_PARKED" -eq 1 ]] || return 0
-  log "Restoring Zoom Keychain items..."
+  if [[ -z "$park" ]]; then
+    [[ "$KEYCHAIN_PARKED" -eq 1 ]] || return 0
+    park="$PARK_DIR"
+  fi
+  log "Restoring Zoom Keychain items from $park ..."
   i=1
-  while [[ -f "$PARK_DIR/kc/$i.label" ]]; do
-    label="$(cat "$PARK_DIR/kc/$i.label")"
-    acct="$(cat "$PARK_DIR/kc/$i.acct" 2>/dev/null || true)"
-    svce="$(cat "$PARK_DIR/kc/$i.svce" 2>/dev/null || true)"
+  while [[ -f "$park/kc/$i.label" ]]; do
+    label="$(cat "$park/kc/$i.label")"
+    acct="$(cat "$park/kc/$i.acct" 2>/dev/null || true)"
+    svce="$(cat "$park/kc/$i.svce" 2>/dev/null || true)"
     pass=""
-    if [[ -f "$PARK_DIR/kc/$i.pass" ]]; then
-      pass="$(cat "$PARK_DIR/kc/$i.pass")"
+    if [[ -f "$park/kc/$i.pass" ]]; then
+      pass="$(cat "$park/kc/$i.pass")"
     fi
     if [[ -n "$pass" ]]; then
       cmd=(/usr/bin/security add-generic-password -U -l "$label" -w "$pass")
@@ -524,36 +532,49 @@ seed_guest_zoom_prefs() {
   fi
 }
 
-restore_display_name() {
+restore_display_name_from() {
+  local park="$1"
   local name=""
-  [[ "$REALNAME_SAVED" -eq 1 ]] || return 0
-  if [[ -f "$PARK_DIR/original_realname.txt" ]]; then
-    name="$(cat "$PARK_DIR/original_realname.txt")"
-  else
-    name="$ORIGINAL_REALNAME"
-  fi
+  [[ -f "$park/original_realname.txt" ]] || return 0
+  name="$(cat "$park/original_realname.txt")"
   [[ -n "$name" ]] || return 0
-  log "Restoring macOS Full Name."
-  printf '%s\n' "$name" > "$PARK_DIR/restore_realname.txt"
-  cat > "$PARK_DIR/restore_name.sh" <<EOF
+  log "Restoring macOS Full Name from $park"
+  printf '%s\n' "$name" > "$park/restore_realname.txt"
+  cat > "$park/restore_name.sh" <<EOF
 #!/bin/bash
-name=\$(cat "$PARK_DIR/restore_realname.txt")
+name=\$(cat "$park/restore_realname.txt")
 dscl . -create "/Users/${CONSOLE_USER}" RealName "\$name"
 EOF
-  if [[ "$COMPUTERNAME_SAVED" -eq 1 && -f "$PARK_DIR/original_computername.txt" ]]; then
-    printf 'cname=$(cat "%s")\n' "$PARK_DIR/original_computername.txt" >> "$PARK_DIR/restore_name.sh"
-    printf 'if [ -n "$cname" ]; then scutil --set ComputerName "$cname"; fi\n' >> "$PARK_DIR/restore_name.sh"
+  if [[ -f "$park/original_computername.txt" ]]; then
+    printf 'cname=$(cat "%s")\n' "$park/original_computername.txt" >> "$park/restore_name.sh"
+    printf 'if [ -n "$cname" ]; then scutil --set ComputerName "$cname"; fi\n' >> "$park/restore_name.sh"
   fi
-  printf 'dscacheutil -flushcache || true\n' >> "$PARK_DIR/restore_name.sh"
-  chmod 700 "$PARK_DIR/restore_name.sh"
-  run_admin "$PARK_DIR/restore_name.sh" >>"$LOG_FILE" 2>&1 \
+  printf 'dscacheutil -flushcache || true\n' >> "$park/restore_name.sh"
+  chmod 700 "$park/restore_name.sh"
+  run_admin "$park/restore_name.sh" >>"$LOG_FILE" 2>&1 \
     || warn "Could not restore Full Name. Backup is on your Desktop: $NAME_BACKUP_FILE"
-  if [[ "$REALNAME_SAVED" -eq 1 ]]; then
-    # Keep the Desktop backup unless restore succeeded.
-    if dscl . -read "/Users/${CONSOLE_USER}" RealName 2>/dev/null | grep -F -q -e "$name"; then
-      rm -f "$NAME_BACKUP_FILE" >>"$LOG_FILE" 2>&1 || true
-    fi
+  if dscl . -read "/Users/${CONSOLE_USER}" RealName 2>/dev/null | grep -F -q -e "$name"; then
+    rm -f "$NAME_BACKUP_FILE" >>"$LOG_FILE" 2>&1 || true
   fi
+}
+
+restore_display_name() {
+  [[ "$REALNAME_SAVED" -eq 1 ]] || return 0
+  restore_display_name_from "$PARK_DIR"
+}
+
+restore_leftover_parks() {
+  local dir
+  [[ -d "$HOME/.zwtf_identity_park" ]] || return 0
+  for dir in "$HOME/.zwtf_identity_park"/*; do
+    [[ -d "$dir" ]] || continue
+    [[ "$dir" == "$PARK_DIR" ]] && continue
+    log "Restoring leftover parked Zoom identity from $dir"
+    unpark_personal_zoom_files "$dir"
+    unpark_zoom_keychain "$dir"
+    restore_display_name_from "$dir"
+    rm -rf "$dir" >>"$LOG_FILE" 2>&1 || true
+  done
 }
 
 write_sandbox_profile() {
@@ -686,6 +707,7 @@ Personal Zoom is parked until you quit Zoom." "Continue" 40
   log "Zoom binary: $ZOOM_BIN"
 
   stop_zoom || die "Could not quit Zoom. Quit 1132wtf-v94 and Zoom, then run again."
+  restore_leftover_parks
   mkdir -p "$PARK_DIR/items" "$PARK_DIR/kc"
   chmod 700 "$PARK_DIR"
   capture_computername_before_change
@@ -709,7 +731,8 @@ Log: $LOG_FILE" "OK" 20
   else
     osascript_dialog "Zoom is still running, so gamer Zoom was not restored yet.
 
-Quit Zoom. This app will try again when it exits.
+Quit Zoom. Restore retries when this app exits.
+If Zoom is still running then, run Church Guest Zoom again after you quit Zoom.
 
 Parked files: $PARK_DIR
 Backup name: $NAME_BACKUP_FILE
