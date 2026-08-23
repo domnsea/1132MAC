@@ -322,8 +322,11 @@ unpark_personal_zoom_files() {
   while IFS=$'\t' read -r n src; do
     [[ -n "$n" && -n "$src" ]] || continue
     if [[ -e "$park/items/$n" || -L "$park/items/$n" ]]; then
+      if [[ -e "$src" || -L "$src" ]]; then
+        log "Already restored (not overwriting): $src"
+        continue
+      fi
       mkdir -p "$(dirname "$src")"
-      rm -rf "$src" >>"$LOG_FILE" 2>&1 || true
       if mv "$park/items/$n" "$src" >>"$LOG_FILE" 2>&1; then
         log "Restored: $src"
       else
@@ -722,10 +725,6 @@ restore_leftover_parks() {
     fi
   done
   [[ -n "$oldest" ]] || return 0
-  if identity_still_visible; then
-    warn "Leftover parks exist but personal Zoom files are already in place. Not restoring leftovers over them."
-    return 1
-  fi
   log "Restoring oldest leftover parked Zoom identity from $oldest"
   unlock_park_dir "$oldest" || {
     warn "Could not unlock leftover park $oldest; leaving it in place."
@@ -921,12 +920,16 @@ Log: $LOG_FILE"
   chmod 700 "$PARK_DIR"
   capture_computername_before_change
   park_personal_zoom_files
+  set_guest_display_name
   park_zoom_keychain
+  lock_park_dir "$PARK_DIR" || die "Could not lock parked Zoom login.
+
+Enter your Mac password when asked, then run Church Guest Zoom again.
+Without that lock, guest Zoom is not started."
   if identity_still_visible; then
     die "Personal Zoom files are still visible. Refusing to launch."
   fi
   log "Personal Zoom files are hidden."
-  set_guest_display_name
   seed_guest_zoom_prefs
   launch_guest_zoom
   if ! wait_for_zoom_start; then

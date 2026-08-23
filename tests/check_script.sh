@@ -243,6 +243,36 @@ if "if ! restore_display_name_from" not in body:
     raise SystemExit("leftover restore must check display-name restore before deleting the park")
 if "Leftover display-name restore failed" not in body:
     raise SystemExit("leftover restore must keep a park when display-name restore fails")
+if "identity_still_visible" in body:
+    raise SystemExit("leftover restore must retry Keychain/name even if files are already restored")
+PY
+python3 - "$TEMP" <<'PY' || fail "file restore must not overwrite already-restored identity"
+import sys
+from pathlib import Path
+text = Path(sys.argv[1]).read_text()
+start = text.find("unpark_personal_zoom_files()")
+end = text.find("\nkc_field()")
+if start < 0 or end < 0:
+    raise SystemExit("could not find unpark_personal_zoom_files")
+if "not overwriting" not in text[start:end]:
+    raise SystemExit("unpark_personal_zoom_files must not overwrite dest files already restored")
+PY
+python3 - "$TEMP" <<'PY' || fail "Keychain backups must be root-locked immediately after park"
+import sys
+from pathlib import Path
+text = Path(sys.argv[1]).read_text()
+start = text.find("\nmain()")
+if start < 0:
+    raise SystemExit("could not find main")
+body = text[start:]
+name_at = body.find("set_guest_display_name")
+park_at = body.find("park_zoom_keychain")
+lock_at = body.find("lock_park_dir")
+id_at = body.find("identity_still_visible")
+if min(name_at, park_at, lock_at, id_at) < 0:
+    raise SystemExit("main missing lock/park steps")
+if not (name_at < park_at < lock_at < id_at):
+    raise SystemExit("lock must run immediately after parking Keychain, before launch work")
 PY
 python3 - "$TEMP" <<'PY' || fail "cleanup must not delete the park if file or Keychain restore fails"
 import sys
