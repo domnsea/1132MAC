@@ -1,15 +1,18 @@
 # Slimcast / leftover resource cleanup
 
-The Cursor remote desktop was lagging because XFCE was compositing with software GL, Plank kept restarting, and leftover caches sat in the home directory.
+The remote desktop felt frozen because VNC was streaming **1920x1200 at 60fps in 24-bit color**. The VM itself was idle; the viewer could not keep up.
 
 ## This remote desktop (Linux)
 
 Already applied on the current session:
 
+- VNC restarted at **1280x800**, **16-bit color**, **12fps**
 - Window compositor off
-- Wallpaper set to a solid color
-- Plank dock and bamf stopped (they respawn from `desktop-init.sh`)
-- Go build cache, nvm download cache, Mesa shader cache, and `/tmp/node-compile-cache` removed
+- Wallpaper process (`xfdesktop`) stopped
+- Plank dock stopped
+- Unused caches removed
+
+Refresh the Slimcast tab if the screen went blank after the VNC restart.
 
 To run it again:
 
@@ -17,7 +20,7 @@ To run it again:
 bash tools/slimcast_speedup.sh
 ```
 
-VNC is left running so the session stays connected.
+The script restarts VNC only when frame rate/depth are still at the slow defaults.
 
 ## Mac leftover Zoom CPU / temp
 

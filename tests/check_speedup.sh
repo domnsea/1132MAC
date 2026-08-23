@@ -24,10 +24,12 @@ pass "bash syntax ok"
 
 grep -q 'use_compositing' "$SLIM" || fail "slimcast script must disable compositing"
 grep -q 'node-compile-cache' "$SLIM" || fail "slimcast script must clear node compile cache"
-if grep -E 'killall|pkill' "$SLIM" | grep -E 'Xtigervnc|tigervncserver|xfce4-session|cursor-server'; then
-  fail "slimcast script must not kill VNC/session processes"
+grep -q 'FrameRate' "$SLIM" || fail "slimcast script must set VNC FrameRate"
+grep -q '1280x800' "$SLIM" || fail "slimcast script must shrink the desktop"
+if grep -E 'killall|pkill' "$SLIM" | grep -E 'xfce4-session|cursor-server'; then
+  fail "slimcast script must not kill the session or Cursor"
 fi
-pass "slimcast script keeps VNC/session processes"
+pass "slimcast script keeps session/Cursor processes"
 
 grep -q 'zwtf_identity_park' "$MAC" || fail "mac script must mention identity parks"
 grep -q 'Documents/Zoom' "$MAC" || fail "mac script must mention recordings path"
