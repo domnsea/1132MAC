@@ -195,6 +195,13 @@ if pass_at < 0 or pass_at > del_at:
     raise SystemExit("password backup must be written before delete")
 if "leaving it in place so it can be restored later" not in body:
     raise SystemExit("must skip delete when the secret cannot be read")
+if "tmp.pass" in body:
+    raise SystemExit("must not write Keychain secrets to a user-owned tmp.pass file")
+if 'printf \'%s\' "$pass" > "$PARK_DIR/kc/$n.pass"' in body:
+    raise SystemExit("must not write .pass as the console user")
+admin_at = body.find("run_admin_cmd")
+if admin_at < 0 or admin_at > del_at:
+    raise SystemExit("password files must be written as root before Keychain delete")
 PY
 python3 - "$TEMP" <<'PY' || fail "Keychain restore must keep password backups until the whole restore succeeds"
 import sys

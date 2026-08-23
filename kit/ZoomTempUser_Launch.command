@@ -372,7 +372,7 @@ kc_field() {
 }
 
 park_zoom_keychain() {
-  local label dump acct svce pass n=0 i
+  local label dump acct svce pass n=0 i cmd to_delete=""
   mkdir -p "$PARK_DIR/kc"
   chmod 700 "$PARK_DIR" "$PARK_DIR/kc" 2>/dev/null || true
   log "Parking Zoom Keychain items, including Zoom Safe Meeting Storage..."
@@ -382,6 +382,7 @@ That saves your gamer Zoom login so it can come back later.
 
 If it does not appear, or you click Deny, guest Zoom still starts.
 Personal Zoom files are already hidden." "Continue" 25
+  cmd="umask 077; mkdir -p $(sh_quote "$PARK_DIR/kc")"
   while IFS= read -r label; do
     [[ -n "$label" ]] || continue
     i=0
@@ -390,11 +391,7 @@ Personal Zoom files are already hidden." "Continue" 25
       [[ -n "$dump" ]] || break
       acct="$(kc_field "$dump" "acct")"
       svce="$(kc_field "$dump" "svce")"
-      pass=""
-      if run_with_timeout 8 /usr/bin/security find-generic-password -l "$label" -w >"$PARK_DIR/kc/tmp.pass" 2>/dev/null; then
-        pass="$(cat "$PARK_DIR/kc/tmp.pass" 2>/dev/null || true)"
-      fi
-      rm -f "$PARK_DIR/kc/tmp.pass"
+      pass="$(run_with_timeout 8 /usr/bin/security find-generic-password -l "$label" -w 2>/dev/null || true)"
       if [[ -z "$pass" ]]; then
         warn "Could not read Keychain secret for $label; leaving it in place so it can be restored later."
         break
@@ -403,19 +400,29 @@ Personal Zoom files are already hidden." "Continue" 25
       printf '%s\n' "$label" > "$PARK_DIR/kc/$n.label"
       printf '%s\n' "$acct" > "$PARK_DIR/kc/$n.acct"
       printf '%s\n' "$svce" > "$PARK_DIR/kc/$n.svce"
-      printf '%s' "$pass" > "$PARK_DIR/kc/$n.pass"
-      chmod 600 "$PARK_DIR/kc/$n.pass" 2>/dev/null || true
-      if run_with_timeout 8 /usr/bin/security delete-generic-password -l "$label" >/dev/null 2>&1; then
-        log "Parked Keychain item: $label"
-      else
-        warn "Saved $label but could not delete it from Keychain."
-        break
-      fi
+      cmd="$cmd; printf '%s' $(sh_quote "$pass") > $(sh_quote "$PARK_DIR/kc/$n.pass")"
+      to_delete="${to_delete}${label}"$'\n'
       i=$((i + 1))
     done
   done <<EOF
 $ZOOM_KC_LABELS
 EOF
+  if [[ "$n" -gt 0 ]]; then
+    cmd="$cmd; chown -R root:wheel $(sh_quote "$PARK_DIR"); chmod -R go-rwx $(sh_quote "$PARK_DIR"); find $(sh_quote "$PARK_DIR") -type d -exec chmod 700 {} +; find $(sh_quote "$PARK_DIR") -type f -exec chmod 600 {} +"
+    if ! run_admin_cmd "$cmd" >>"$LOG_FILE" 2>&1; then
+      warn "Could not store Keychain backups as root. Secrets were left in Keychain."
+    else
+      log "Stored $n Keychain backup(s) as root."
+      while IFS= read -r label; do
+        [[ -n "$label" ]] || continue
+        if run_with_timeout 8 /usr/bin/security delete-generic-password -l "$label" >/dev/null 2>&1; then
+          log "Parked Keychain item: $label"
+        else
+          warn "Saved $label but could not delete it from Keychain."
+        fi
+      done <<< "$to_delete"
+    fi
+  fi
   KEYCHAIN_PARKED=1
   if keychain_zoom_still_present; then
     warn "Keychain would not hide every Zoom login (Allow was denied, timed out, or blocked)."
@@ -568,7 +575,13 @@ unlock_park_dir() {
 
 lock_park_dir() {
   local dir="$1"
+  local owner
   [[ -d "$dir" ]] || return 1
+  owner="$(stat -f %u "$dir" 2>/dev/null || true)"
+  if [[ "$owner" == "0" ]]; then
+    log "Park already root-owned at $dir"
+    return 0
+  fi
   if run_admin_cmd "chown -R root:wheel $(sh_quote "$dir") && chmod -R go-rwx $(sh_quote "$dir") && find $(sh_quote "$dir") -type d -exec chmod 700 {} + && find $(sh_quote "$dir") -type f -exec chmod 600 {} +" >>"$LOG_FILE" 2>&1; then
     log "Root-locked parked identity at $dir so Zoom cannot read Keychain backups."
     return 0
