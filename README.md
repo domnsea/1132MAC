@@ -1,12 +1,12 @@
 # Slimcast / leftover resource cleanup
 
-The remote desktop felt frozen because VNC was streaming **1920x1200 at 60fps in 24-bit color**. The VM itself was idle; the viewer could not keep up.
+The remote desktop felt frozen because VNC was streaming **1920x1200 at 60fps in 24-bit color**, and the viewer could enlarge that desktop again. The VM itself was idle; the viewer could not keep up.
 
 ## This remote desktop (Linux)
 
 Already applied on the current session:
 
-- VNC restarted at **1280x800**, **16-bit color**, **12fps**
+- VNC locked at **1024x768**, **16-bit color**, **8fps** (viewer cannot resize it back up)
 - Window compositor off
 - Wallpaper process (`xfdesktop`) stopped
 - Plank dock stopped

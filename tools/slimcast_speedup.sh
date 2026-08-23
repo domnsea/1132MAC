@@ -7,9 +7,9 @@ set -u -o pipefail
 DISPLAY="${DISPLAY:-:1}"
 export DISPLAY
 
-TARGET_GEOM="1280x800"
+TARGET_GEOM="1024x768"
 TARGET_DEPTH="16"
-TARGET_FPS="12"
+TARGET_FPS="8"
 VNC_PORT="${VNC_PORT:-5901}"
 VNC_XSTARTUP="${VNC_XSTARTUP:-/tmp/anyos-xstartup}"
 VNC_CONFIG="${HOME}/.vnc/config"
@@ -68,6 +68,7 @@ FrameRate=${TARGET_FPS}
 CompareFB=2
 ImprovedHextile=1
 ZlibLevel=2
+AcceptSetDesktopSize=0
 EOF
 }
 
@@ -99,7 +100,11 @@ restart_vnc() {
     -desktop AnyOS \
     -SecurityTypes None \
     -xstartup "$VNC_XSTARTUP" \
-    -FrameRate "$TARGET_FPS"
+    -FrameRate "$TARGET_FPS" \
+    -AcceptSetDesktopSize=0 \
+    -CompareFB 2 \
+    -ZlibLevel 2 \
+    -ImprovedHextile=1
 
   local i
   for i in $(seq 1 40); do
@@ -122,7 +127,7 @@ shrink_display() {
     return 0
   fi
   xrandr --output "$output" --mode "$TARGET_GEOM" 2>/dev/null \
-    || xrandr --output "$output" --mode 1280x720 2>/dev/null \
+    || xrandr --output "$output" --mode 1024x768 2>/dev/null \
     || true
 }
 

@@ -25,7 +25,8 @@ pass "bash syntax ok"
 grep -q 'use_compositing' "$SLIM" || fail "slimcast script must disable compositing"
 grep -q 'node-compile-cache' "$SLIM" || fail "slimcast script must clear node compile cache"
 grep -q 'FrameRate' "$SLIM" || fail "slimcast script must set VNC FrameRate"
-grep -q '1280x800' "$SLIM" || fail "slimcast script must shrink the desktop"
+grep -q '1024x768' "$SLIM" || fail "slimcast script must shrink the desktop"
+grep -q 'AcceptSetDesktopSize=0' "$SLIM" || fail "slimcast script must lock desktop size"
 if grep -E 'killall|pkill' "$SLIM" | grep -E 'xfce4-session|cursor-server'; then
   fail "slimcast script must not kill the session or Cursor"
 fi
