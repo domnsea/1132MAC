@@ -633,17 +633,18 @@ remove_park_dir() {
 
 cleanup() {
   [[ "$CLEANED_UP" -eq 1 ]] && return 0
-  CLEANED_UP=1
   if ! stop_zoom; then
     warn "Zoom still running; not restoring parked files or display name onto a live Zoom."
-    log "Parked identity remains in $PARK_DIR. Desktop backup: $NAME_BACKUP_FILE"
-    return 0
+    log "Parked identity remains in $PARK_DIR. Desktop backup: $NAME_BACKUP_FILE. Restore will retry on exit."
+    return 1
   fi
   restore_display_name
   unpark_personal_zoom_files
   unpark_zoom_keychain
   remove_park_dir
+  CLEANED_UP=1
   log "Cleanup finished. Personal Zoom identity restored."
+  return 0
 }
 
 main() {
@@ -701,10 +702,19 @@ Personal Zoom is parked until you quit Zoom." "Continue" 40
     die "Zoom did not stay running. See the Desktop log."
   fi
   wait_for_zoom_quit
-  cleanup
-  osascript_dialog "Done. Personal Zoom login and name restored.
+  if cleanup; then
+    osascript_dialog "Done. Personal Zoom login and name restored.
 
 Log: $LOG_FILE" "OK" 20
+  else
+    osascript_dialog "Zoom is still running, so gamer Zoom was not restored yet.
+
+Quit Zoom. This app will try again when it exits.
+
+Parked files: $PARK_DIR
+Backup name: $NAME_BACKUP_FILE
+Log: $LOG_FILE" "OK" 30
+  fi
   log "Script finished."
 }
 

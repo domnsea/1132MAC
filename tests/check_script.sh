@@ -147,6 +147,8 @@ if end < 0:
     raise SystemExit("could not find end of stop_zoom failure branch")
 if "restore_display_name" in text[start:end]:
     raise SystemExit("failure branch restores display name")
+if "CLEANED_UP=1" in text[start:end]:
+    raise SystemExit("failure branch must not mark cleanup done or EXIT cannot retry")
 PY
 if grep -q 'Could not hide Zoom saved logins' "$TEMP"; then
   fail "guest launcher must not abort the whole session on Keychain failure"
