@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build ChurchGuestZoom.app copies and the uniquely named F zip."""
+"""Build ChurchGuestZoom.app copies and the uniquely named guest zip."""
 from __future__ import annotations
 
 import os
@@ -14,7 +14,7 @@ SRC = ROOT / "ChurchGuestZoom.command"
 APP_BIN = ROOT / "ChurchGuestZoom.app" / "Contents" / "MacOS" / "ChurchGuestZoom"
 KIT_A = ROOT / "kit" / "ChurchGuestZoom.command"
 KIT_B = ROOT / "kit" / "ZoomTempUser_Launch.command"
-ZIP_PATH = ROOT / "ChurchGuestZoom-20260823F.zip"
+ZIP_PATH = ROOT / "ChurchGuestZoom-20260823G.zip"
 OPEN_ME = ROOT / "OPEN_ME.txt"
 APP_ROOT = ROOT / "ChurchGuestZoom.app"
 
@@ -71,12 +71,28 @@ def build_zip() -> None:
         add_file(zf, APP_BIN, "ChurchGuestZoom.app/Contents/MacOS/ChurchGuestZoom", 0o755)
 
 
+def build_reset_zip() -> None:
+    reset_zip = ROOT / "BALLROOM_Mac_Universal_Reset_Kit.zip"
+    if reset_zip.exists():
+        reset_zip.unlink()
+    with zipfile.ZipFile(reset_zip, "w") as zf:
+        add_file(zf, ROOT / "kit" / "ZoomReset_Universal_Mac.command", "ZoomReset_Universal_Mac.command", 0o755)
+        add_file(zf, ROOT / "kit" / "README_MAC_UNIVERSAL.txt", "README_MAC_UNIVERSAL.txt", 0o644)
+        add_file(zf, ROOT / "kit" / "LICENSE_MIT.txt", "LICENSE_MIT.txt", 0o644)
+        pdf = ROOT / "kit" / "BALLROOM_Mac_Universal_Zoom_Reset_Guide.pdf"
+        if pdf.is_file():
+            add_file(zf, pdf, "BALLROOM_Mac_Universal_Zoom_Reset_Guide.pdf", 0o644)
+        add_file(zf, KIT_B, "ZoomTempUser_Launch.command", 0o755)
+    print("wrote", reset_zip, "bytes", reset_zip.stat().st_size)
+
+
 def main() -> None:
     os.chdir(ROOT)
     if not SRC.is_file():
         raise SystemExit("missing ChurchGuestZoom.command")
     copy_launchers()
     build_zip()
+    build_reset_zip()
     print("wrote", ZIP_PATH, "bytes", ZIP_PATH.stat().st_size)
 
 

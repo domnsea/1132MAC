@@ -1,6 +1,6 @@
 BALLROOM MAC UNIVERSAL ZOOM KIT
 
-Church / guest session: download ChurchGuestZoom-20260823F.zip and run
+Church / guest session: download ChurchGuestZoom-20260823G.zip and run
 ChurchGuestZoom.app (right-click ? Open). A window must appear immediately.
 
 Do not use this reset zip for church. Do not open a raw .command from GitHub.
@@ -20,7 +20,8 @@ The .command could be saved as text, or hang with no window on:
 sudo password (no TTY), AppleEvent-quit of a stuck End Meeting dialog,
 missing python3 on Monterey, or a full search of ~/Library.
 
-Build F is an .app. Dialog is the first action. Those hang paths are gone.
+Build G is an .app. Dialog is the first action. Those hang paths are gone.
+It will not park or restore Zoom files while Zoom is still running.
 
 WHY THE GAMER NAME KEPT SHOWING
 
@@ -33,6 +34,7 @@ This launcher parks those, then starts Zoom with sandbox-exec — not open.
 RESET SCRIPT
 
 ZoomReset_Universal_Mac.command wipes leftover Zoom files. It can delete
-local recordings. It is not the church guest launcher.
+local recordings. It is not the church guest launcher. It will not wipe
+while Zoom is still running, and it will not run as root.
 
 Run from the desktop, not SSH, and not with sudo.

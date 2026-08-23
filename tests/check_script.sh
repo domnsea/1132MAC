@@ -8,7 +8,7 @@ TEMP="$ROOT/kit/ZoomTempUser_Launch.command"
 CHURCH="$ROOT/ChurchGuestZoom.command"
 APP="$ROOT/ChurchGuestZoom.app/Contents/MacOS/ChurchGuestZoom"
 PLIST="$ROOT/ChurchGuestZoom.app/Contents/Info.plist"
-ZIP="$ROOT/ChurchGuestZoom-20260823F.zip"
+ZIP="$ROOT/ChurchGuestZoom-20260823G.zip"
 
 fail() {
   echo "FAIL: $*" >&2
@@ -17,6 +17,10 @@ fail() {
 
 pass() {
   echo "PASS: $*"
+}
+
+noncomment() {
+  grep -v '^[[:space:]]*#' "$1"
 }
 
 [[ -f "$RESET" ]] || fail "missing $RESET"
@@ -42,12 +46,18 @@ fi
 pass "reset script does not exec Contents/MacOS/zoom.us"
 
 grep -q '/usr/bin/open' "$RESET" || fail "reset script expected /usr/bin/open"
-grep -q 'launchctl asuser' "$RESET" || fail "reset script expected launchctl asuser"
+if noncomment "$RESET" | grep -q 'tell application'; then
+  fail "reset script must not AppleEvent-quit Zoom (hangs on End Meeting)"
+fi
+if grep -q 'continuing anyway' "$RESET"; then
+  fail "reset script must not wipe Zoom data while Zoom is still running"
+fi
+grep -q 'Do not run this reset with sudo' "$RESET" || fail "reset script must refuse root"
+grep -q 'Could not quit Zoom' "$RESET" || fail "reset script must stop if Zoom will not quit"
+if noncomment "$RESET" | grep -Eq 'launchctl[[:space:]]+asuser'; then
+  fail "reset script must not launchctl asuser while remaining root"
+fi
 pass "reset script launch path"
-
-noncomment() {
-  grep -v '^[[:space:]]*#' "$1"
-}
 
 if noncomment "$TEMP" | grep -Eq 'launchctl[[:space:]]+bsexec'; then
   fail "guest launcher must not use launchctl bsexec"
@@ -101,6 +111,10 @@ grep -q 'Refusing to launch' "$TEMP" || fail "guest launcher must refuse to laun
 grep -q 'Waiting for Zoom to quit' "$TEMP" || fail "guest launcher must wait for Zoom to quit"
 grep -q 'display dialog' "$CHURCH" || fail "launcher must show an immediate dialog"
 grep -q 'Do not run as root' "$TEMP" || fail "guest launcher must refuse root"
+grep -q 'Could not quit Zoom' "$TEMP" || fail "guest launcher must stop if Zoom will not quit"
+if grep -A2 'still present after kill' "$TEMP" | grep -q 'return 0'; then
+  fail "stop_zoom must not succeed if Zoom is still running"
+fi
 pass "guest launcher identity isolation"
 
 # Proof of life is the first osascript, before set -u work.
@@ -146,12 +160,12 @@ with zipfile.ZipFile(zpath) as zf:
     if mode & 0o111 == 0:
         raise SystemExit("app executable in zip is not executable (mode=%o)" % mode)
     data = zf.read("ChurchGuestZoom.app/Contents/MacOS/ChurchGuestZoom")
-    if b"2026-08-23-F" not in data:
+    if b"2026-08-23-G" not in data:
         raise SystemExit("zip app is not build F")
     if b"python3" in b"\n".join(line for line in data.splitlines() if not line.lstrip().startswith(b"#")):
         raise SystemExit("zip app still calls python3")
 print("zip ok")
 PY
-pass "zip ChurchGuestZoom-20260823F.zip contains executable .app"
+pass "zip ChurchGuestZoom-20260823G.zip contains executable .app"
 
 echo "All checks passed."

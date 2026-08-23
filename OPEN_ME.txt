@@ -1,4 +1,4 @@
-CHURCH GUEST ZOOM — BUILD 2026-08-23-F
+CHURCH GUEST ZOOM — BUILD 2026-08-23-G
 
 This zip is ChurchGuestZoom.app (not a .command file).
 Earlier zips did nothing after you opened them: macOS saved the
@@ -12,7 +12,7 @@ HOW TO RUN
 3. Right-click ChurchGuestZoom.app → Open → Open.
    (Double-click may be blocked by Gatekeeper the first time.)
 4. A window MUST appear immediately: "Church Guest Zoom is starting."
-   If you get no window, this is not the F zip. Download again.
+   If you get no window, this is not the G zip. Download again.
 5. Click Continue. Enter your Mac password if asked.
 6. Click Allow if Keychain Access asks.
 7. Zoom opens with a random 6-digit name. Leave the app in the Dock

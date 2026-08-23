@@ -1,5 +1,5 @@
 #!/bin/bash
-# ChurchGuestZoom — BUILD 2026-08-23-F
+# ChurchGuestZoom — BUILD 2026-08-23-G
 # Double-clickable guest Zoom session that cannot load the personal/gamer login.
 #
 # Hang / "did nothing" bugs removed vs build E:
@@ -39,7 +39,7 @@ OSA
 set -u -o pipefail
 
 SCRIPT_NAME="ChurchGuestZoom"
-SCRIPT_VERSION="2026-08-23-F"
+SCRIPT_VERSION="2026-08-23-G"
 GUEST_DISPLAY_NAME=""
 LOG_FILE="$HOME/Desktop/ChurchGuestZoom-log.txt"
 RUN_ID="$(date +%Y%m%d%H%M%S)"
@@ -189,26 +189,27 @@ zoom_is_running() {
 # Force-kill only. AppleEvent quit hangs on the stuck End Meeting dialog.
 stop_zoom() {
   log "Force-quitting Zoom and 1132wtf-v94 (no AppleEvent quit)..."
-  pkill -9 -f '/usr/local/libexec/1132wtf-v94/' >/dev/null 2>&1 || true
-  pkill -9 -f 'root_launch_temp_zoom' >/dev/null 2>&1 || true
-  pkill -9 -f '1132wtf' >/dev/null 2>&1 || true
-  local proc
-  for proc in zoom.us CptHost caphost aomhost aomhost64 zAutoUpdate ZoomOpener zCrashReport zTscoder ZoomUpdater; do
-    killall -9 "$proc" >/dev/null 2>&1 || true
-  done
-  pkill -9 -f '/Applications/zoom.us.app/' >/dev/null 2>&1 || true
-  pkill -9 -f '/Applications/Zoom Workplace.app/' >/dev/null 2>&1 || true
-  pkill -9 -f '/Applications/Zoom.app/' >/dev/null 2>&1 || true
-  local i
-  for i in 1 2 3 4 5 6 7 8 9 10; do
-    if ! zoom_is_running; then
-      log "Zoom is not running."
-      return 0
-    fi
-    sleep 0.5
+  local round i proc
+  for round in 1 2 3; do
+    pkill -9 -f '/usr/local/libexec/1132wtf-v94/' >/dev/null 2>&1 || true
+    pkill -9 -f 'root_launch_temp_zoom' >/dev/null 2>&1 || true
+    pkill -9 -f '1132wtf' >/dev/null 2>&1 || true
+    for proc in zoom.us CptHost caphost aomhost aomhost64 zAutoUpdate ZoomOpener zCrashReport zTscoder ZoomUpdater; do
+      killall -9 "$proc" >/dev/null 2>&1 || true
+    done
+    pkill -9 -f '/Applications/zoom.us.app/' >/dev/null 2>&1 || true
+    pkill -9 -f '/Applications/Zoom Workplace.app/' >/dev/null 2>&1 || true
+    pkill -9 -f '/Applications/Zoom.app/' >/dev/null 2>&1 || true
+    for i in 1 2 3 4 5 6; do
+      if ! zoom_is_running; then
+        log "Zoom is not running."
+        return 0
+      fi
+      sleep 0.5
+    done
   done
   warn "zoom.us still present after kill -9"
-  return 0
+  return 1
 }
 
 list_zoom_identity_paths() {
@@ -632,7 +633,12 @@ remove_park_dir() {
 cleanup() {
   [[ "$CLEANED_UP" -eq 1 ]] && return 0
   CLEANED_UP=1
-  stop_zoom || true
+  if ! stop_zoom; then
+    warn "Zoom still running; not restoring parked files onto a live Zoom."
+    restore_display_name
+    log "Parked identity remains in $PARK_DIR. Desktop backup: $NAME_BACKUP_FILE"
+    return 0
+  fi
   restore_display_name
   unpark_personal_zoom_files
   unpark_zoom_keychain
@@ -678,7 +684,7 @@ Personal Zoom is parked until you quit Zoom." "Continue" 40
   [[ -n "$ZOOM_BIN" ]] || die "Zoom is not installed in /Applications."
   log "Zoom binary: $ZOOM_BIN"
 
-  stop_zoom
+  stop_zoom || die "Could not quit Zoom. Quit 1132wtf-v94 and Zoom, then run again."
   mkdir -p "$PARK_DIR/items" "$PARK_DIR/kc"
   chmod 700 "$PARK_DIR"
   capture_computername_before_change

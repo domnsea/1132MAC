@@ -11,7 +11,7 @@
 set -u -o pipefail
 
 SCRIPT_NAME="ZoomReset_Universal_Mac.command"
-SCRIPT_VERSION="1.1.0"
+SCRIPT_VERSION="1.1.1"
 LOG_FILE="$HOME/Desktop/ZoomReset_$(date +%Y%m%d_%H%M%S).log"
 
 DELETE_LOCAL_RECORDINGS=1
@@ -105,9 +105,8 @@ prompt_sudo() {
   HAVE_SUDO=0
 
   if [[ "$EUID" -eq 0 ]]; then
-    HAVE_SUDO=1
-    log "Already running with admin rights."
-    return 0
+    echo "Do not run this reset with sudo. Double-click it as your normal Mac user."
+    exit 1
   fi
 
   echo "macOS may ask for your password so the script can clean shared Zoom folders too."
@@ -129,29 +128,29 @@ zoom_is_running() {
 }
 
 stop_zoom() {
-  log "Stopping Zoom processes..."
-  run_quiet osascript -e 'tell application "zoom.us" to quit' || true
-  run_quiet osascript -e 'tell application "Zoom Workplace" to quit' || true
-  run_quiet osascript -e 'tell application "Zoom" to quit' || true
-  run_quiet pkill -x "zoom.us" || true
-  run_quiet pkill -x "Zoom" || true
-  run_quiet pkill -x "Zoom Workplace" || true
-  run_quiet pkill -x "CptHost" || true
-  run_quiet pkill -x "zTscoder" || true
+  log "Force-quitting Zoom (no AppleEvent quit — that hangs on End Meeting)..."
+  run_quiet pkill -9 -f '/usr/local/libexec/1132wtf-v94/' || true
+  run_quiet pkill -9 -f 'root_launch_temp_zoom' || true
+  local proc
+  for proc in zoom.us CptHost caphost aomhost aomhost64 zAutoUpdate ZoomOpener zCrashReport zTscoder ZoomUpdater Zoom "Zoom Workplace"; do
+    run_quiet killall -9 "$proc" || true
+  done
+  run_quiet pkill -9 -x "zoom.us" || true
+  run_quiet pkill -9 -f '/Applications/zoom.us.app/' || true
   wait_for_zoom_exit
-  log "Zoom stop sequence finished."
 }
 
 wait_for_zoom_exit() {
   local i
-  for i in $(seq 1 15); do
+  for i in $(seq 1 10); do
     if ! zoom_is_running; then
       log "Zoom processes have exited."
       return 0
     fi
-    sleep 1
+    sleep 0.5
   done
-  warn "Zoom processes were still running after 15 seconds; continuing anyway."
+  warn "Zoom processes were still running after kill -9."
+  return 1
 }
 
 flush_pref_cache() {
@@ -240,17 +239,9 @@ find_zoom_app() {
 # Ask Launch Services to open a GUI app in the console user's WindowServer.
 # Do not replace this with a direct exec of Contents/MacOS/zoom.us.
 run_open() {
-  local console_uid
-  console_uid="$(get_console_uid)"
-
-  if [[ "$EUID" -eq 0 && -n "$console_uid" && "$console_uid" != "0" ]]; then
-    if launchctl asuser "$console_uid" /usr/bin/open "$@" >>"$LOG_FILE" 2>&1; then
-      return 0
-    fi
-    if sudo -u "#${console_uid}" /usr/bin/open "$@" >>"$LOG_FILE" 2>&1; then
-      return 0
-    fi
-    warn "Could not open as console user ${console_uid}; retrying in the current session."
+  if [[ "$EUID" -eq 0 ]]; then
+    warn "Refusing to open Zoom as root (that crashes in _RegisterApplication)."
+    return 1
   fi
 
   /usr/bin/open "$@" >>"$LOG_FILE" 2>&1
@@ -324,15 +315,6 @@ launch_zoom() {
     return 0
   fi
 
-  log "Trying AppleScript activate as a last Launch Services fallback..."
-  if run_quiet osascript -e 'tell application "zoom.us" to activate' \
-    || run_quiet osascript -e 'tell application "Zoom Workplace" to activate' \
-    || run_quiet osascript -e 'tell application "Zoom" to activate'; then
-    if wait_for_zoom_start; then
-      return 0
-    fi
-  fi
-
   explain_registerapplication_crash
   return 1
 }
@@ -364,8 +346,17 @@ main() {
   log "DELETE_LOCAL_RECORDINGS=$DELETE_LOCAL_RECORDINGS"
   log "DELETE_SHARED_RECORDINGS=$DELETE_SHARED_RECORDINGS"
 
+  if [[ "$EUID" -eq 0 ]]; then
+    echo "Do not run this reset with sudo. Double-click it as your normal Mac user."
+    exit 1
+  fi
+
   prompt_sudo
-  stop_zoom
+  if ! stop_zoom; then
+    echo "Could not quit Zoom. Quit Zoom and 1132wtf-v94, then run again."
+    echo "Log: $LOG_FILE"
+    exit 1
+  fi
   clean_user
   clean_system
   flush_pref_cache
