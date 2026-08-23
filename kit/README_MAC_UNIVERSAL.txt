@@ -1,6 +1,6 @@
 BALLROOM MAC UNIVERSAL ZOOM KIT
 
-Church / guest session: download ChurchGuestZoom-20260823H.zip and run
+Church / guest session: download ChurchGuestZoom-20260823I.zip and run
 ChurchGuestZoom.app (right-click ? Open). A window must appear immediately.
 
 Do not use this reset zip for church. Do not open a raw .command from GitHub.
@@ -20,9 +20,9 @@ The .command could be saved as text, or hang with no window on:
 sudo password (no TTY), AppleEvent-quit of a stuck End Meeting dialog,
 missing python3 on Monterey, or a full search of ~/Library.
 
-Build H is an .app. Dialog is the first action. Those hang paths are gone.
+Build I is an .app. Dialog is the first action. Those hang paths are gone.
 It will not park or restore Zoom files, Keychain, or Full Name while Zoom
-is still running.
+is still running. Keychain Deny/timeout no longer aborts guest Zoom.
 
 WHY THE GAMER NAME KEPT SHOWING
 

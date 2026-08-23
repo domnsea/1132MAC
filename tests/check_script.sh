@@ -8,7 +8,7 @@ TEMP="$ROOT/kit/ZoomTempUser_Launch.command"
 CHURCH="$ROOT/ChurchGuestZoom.command"
 APP="$ROOT/ChurchGuestZoom.app/Contents/MacOS/ChurchGuestZoom"
 PLIST="$ROOT/ChurchGuestZoom.app/Contents/Info.plist"
-ZIP="$ROOT/ChurchGuestZoom-20260823H.zip"
+ZIP="$ROOT/ChurchGuestZoom-20260823I.zip"
 
 fail() {
   echo "FAIL: $*" >&2
@@ -128,6 +128,21 @@ if end < 0:
 if "restore_display_name" in text[start:end]:
     raise SystemExit("failure branch restores display name")
 PY
+if grep -q 'Could not hide Zoom saved logins' "$TEMP"; then
+  fail "guest launcher must not abort the whole session on Keychain failure"
+fi
+grep -q 'Guest Zoom will still start' "$TEMP" || fail "guest launcher must continue if Keychain Deny/timeout"
+python3 - "$TEMP" <<'PY' || fail "file identity check must not treat Keychain leftovers as a hard fail"
+import sys
+from pathlib import Path
+text = Path(sys.argv[1]).read_text()
+start = text.find("identity_still_visible()")
+end = text.find("\nread_realname()")
+if start < 0 or end < 0:
+    raise SystemExit("could not find identity_still_visible")
+if "keychain_zoom_still_present" in text[start:end]:
+    raise SystemExit("identity_still_visible still hard-fails on Keychain")
+PY
 pass "guest launcher identity isolation"
 
 # Proof of life is the first osascript, before set -u work.
@@ -173,12 +188,12 @@ with zipfile.ZipFile(zpath) as zf:
     if mode & 0o111 == 0:
         raise SystemExit("app executable in zip is not executable (mode=%o)" % mode)
     data = zf.read("ChurchGuestZoom.app/Contents/MacOS/ChurchGuestZoom")
-    if b"2026-08-23-H" not in data:
+    if b"2026-08-23-I" not in data:
         raise SystemExit("zip app is not build F")
     if b"python3" in b"\n".join(line for line in data.splitlines() if not line.lstrip().startswith(b"#")):
         raise SystemExit("zip app still calls python3")
 print("zip ok")
 PY
-pass "zip ChurchGuestZoom-20260823H.zip contains executable .app"
+pass "zip ChurchGuestZoom-20260823I.zip contains executable .app"
 
 echo "All checks passed."

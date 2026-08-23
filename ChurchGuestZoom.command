@@ -1,5 +1,5 @@
 #!/bin/bash
-# ChurchGuestZoom — BUILD 2026-08-23-H
+# ChurchGuestZoom — BUILD 2026-08-23-I
 # Double-clickable guest Zoom session that cannot load the personal/gamer login.
 #
 # Hang / "did nothing" bugs removed vs build E:
@@ -11,7 +11,7 @@
 #   - No recursive find of all of ~/Library
 #   - No security dump-keychain
 #   - Wait-for-quit watches zoom.us only, not leftover CptHost helpers
-#   - Keychain and AppleEvent calls are time-bounded
+#   - Keychain park is best-effort: a Deny/timeout must not abort guest Zoom
 #
 # Launch path: sandbox-exec on the Zoom binary as THIS Aqua user. Not open.
 # Not launchctl bsexec as another UID (that crashes in _RegisterApplication).
@@ -39,7 +39,7 @@ OSA
 set -u -o pipefail
 
 SCRIPT_NAME="ChurchGuestZoom"
-SCRIPT_VERSION="2026-08-23-H"
+SCRIPT_VERSION="2026-08-23-I"
 GUEST_DISPLAY_NAME=""
 LOG_FILE="$HOME/Desktop/ChurchGuestZoom-log.txt"
 RUN_ID="$(date +%Y%m%d%H%M%S)"
@@ -329,62 +329,46 @@ unpark_personal_zoom_files() {
   fi
 }
 
-kc_field() {
-  local blob="$1"
-  local key="$2"
-  printf '%s\n' "$blob" | awk -v k="$key" '
-    $0 ~ "\"" k "\"" {
-      if ($0 ~ /<NULL>/) { print ""; exit }
-      n = split($0, a, "\"")
-      if (n >= 4) print a[4]
-      exit
-    }'
-}
-
 park_zoom_keychain() {
-  local label dump acct svce pass i=0 n
+  local label i=0
   mkdir -p "$PARK_DIR/kc"
   log "Parking Zoom Keychain items, including Zoom Safe Meeting Storage..."
-  osascript_dialog "If Keychain Access asks, click Allow.
+  osascript_dialog "If a Keychain box appears, click Allow.
 
-That hides the gamer Zoom login for this session.
-
-Click Continue, then Allow." "Continue" 45
+If it does not appear, or you click Deny, guest Zoom still starts.
+Personal Zoom files are already hidden." "Continue" 25
+  # Delete by label/service. Do not require reading the secret first
+  # (that is what hung on Allow and then aborted the whole launch).
   while IFS= read -r label; do
     [[ -n "$label" ]] || continue
-    n=0
-    while run_with_timeout 20 /usr/bin/security find-generic-password -l "$label" >/dev/null 2>&1; do
-      n=$((n + 1))
-      i=$((i + 1))
-      dump="$(run_with_timeout 20 /usr/bin/security find-generic-password -l "$label" 2>/dev/null || true)"
-      acct="$(kc_field "$dump" "acct")"
-      svce="$(kc_field "$dump" "svce")"
-      pass=""
-      if run_with_timeout 25 /usr/bin/security find-generic-password -l "$label" -w >"$PARK_DIR/kc/$i.pass" 2>/dev/null; then
-        pass="$(cat "$PARK_DIR/kc/$i.pass" 2>/dev/null || true)"
-      fi
-      printf '%s\n' "$label" > "$PARK_DIR/kc/$i.label"
-      printf '%s\n' "$acct" > "$PARK_DIR/kc/$i.acct"
-      printf '%s\n' "$svce" > "$PARK_DIR/kc/$i.svce"
-      if [[ -n "$pass" ]]; then
-        printf '%s' "$pass" > "$PARK_DIR/kc/$i.pass"
-        chmod 600 "$PARK_DIR/kc/$i.pass" 2>/dev/null || true
+    i=0
+    while [[ "$i" -lt 6 ]]; do
+      if run_with_timeout 6 /usr/bin/security delete-generic-password -l "$label" >/dev/null 2>&1; then
+        log "Deleted Keychain label: $label"
+        i=$((i + 1))
       else
-        rm -f "$PARK_DIR/kc/$i.pass"
-        warn "No password saved for Keychain label: $label (will still delete it)"
-      fi
-      run_with_timeout 20 /usr/bin/security delete-generic-password -l "$label" >/dev/null 2>&1 || break
-      log "Parked Keychain item: $label"
-      if [[ "$n" -ge 12 ]]; then
         break
       fi
     done
-    # Delete leftovers even if password save timed out, so the gamer login cannot load.
-    run_with_timeout 15 /usr/bin/security delete-generic-password -l "$label" >/dev/null 2>&1 || true
   done <<EOF
 $ZOOM_KC_LABELS
 EOF
+  for svce in us.zoom.xos zoom.us ZoomChat Zoom; do
+    run_with_timeout 6 /usr/bin/security delete-generic-password -s "$svce" >/dev/null 2>&1 || true
+    run_with_timeout 6 /usr/bin/security delete-internet-password -s "$svce" >/dev/null 2>&1 || true
+  done
   KEYCHAIN_PARKED=1
+  if keychain_zoom_still_present; then
+    warn "Keychain would not hide every Zoom login (Allow was denied, timed out, or blocked)."
+    osascript_dialog "Keychain did not hide every saved Zoom login.
+
+Guest Zoom will still start. Files are parked.
+If your gamer name appears, click Allow on Keychain next time.
+
+Click Continue." "Continue" 20
+  else
+    log "Zoom Keychain logins are hidden."
+  fi
 }
 
 unpark_zoom_keychain() {
@@ -448,9 +432,8 @@ identity_still_visible() {
     log "Identity still visible: $p"
     return 0
   done < <(list_zoom_identity_paths "$HOME")
-  if keychain_zoom_still_present; then
-    return 0
-  fi
+  # Keychain leftovers do not abort launch. Allow/Deny prompts are unreliable
+  # and were aborting sessions after files were already parked.
   return 1
 }
 
@@ -690,9 +673,9 @@ Personal Zoom is parked until you quit Zoom." "Continue" 40
   park_personal_zoom_files
   park_zoom_keychain
   if identity_still_visible; then
-    die "Personal Zoom identity is still visible. Refusing to launch. Click Allow on Keychain and run again."
+    die "Personal Zoom files are still visible. Refusing to launch."
   fi
-  log "Personal Zoom files and Keychain logins are hidden."
+  log "Personal Zoom files are hidden."
   set_guest_display_name
   seed_guest_zoom_prefs
   launch_guest_zoom
