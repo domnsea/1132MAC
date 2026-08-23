@@ -1,28 +1,23 @@
 BALLROOM MAC UNIVERSAL ZOOM KIT
 
-Church / guest session: download ChurchGuestZoom-20260823J.zip and run
-ChurchGuestZoom.app (right-click ? Open). A window must appear immediately.
+Church / guest session: download ChurchGuestZoom-20260823K.zip.
+Right-click ChurchGuestZoom-OPEN-ME.command or ChurchGuestZoom.app, then Open.
 
 Do not use this reset zip for church. Do not open a raw .command from GitHub.
 
-HOW TO USE THE APP
+HOW TO USE
 
 1. Quit 1132wtf-v94
-2. Right-click ChurchGuestZoom.app ? Open
+2. Right-click ChurchGuestZoom-OPEN-ME.command or ChurchGuestZoom.app, then Open
 3. Click Continue, enter your Mac password if asked
-4. Click Allow if Keychain Access asks
+4. Click Allow if Keychain Access asks (if it does not, guest Zoom still starts)
 5. Zoom opens with a random 6-digit screen name
-6. Leave the app in the Dock. When you quit Zoom, gamer login is restored
+6. Leave it running. When you quit Zoom, gamer login files are restored
 
 WHY EARLIER BUILDS DID NOTHING
 
-The .command could be saved as text, or hang with no window on:
-sudo password (no TTY), AppleEvent-quit of a stuck End Meeting dialog,
-missing python3 on Monterey, or a full search of ~/Library.
-
-Build J is an .app. Dialog is the first action. Those hang paths are gone.
-It will not park or restore Zoom files, Keychain, or Full Name while Zoom
-is still running. Keychain Deny/timeout no longer aborts guest Zoom.
+The .app was a shell script, so macOS ignored the click. Build K has a real
+Mac binary plus OPEN-ME.command. Keychain Deny no longer aborts guest Zoom.
 
 WHY THE GAMER NAME KEPT SHOWING
 
@@ -30,7 +25,7 @@ Zoom was being started with the normal Open command. That always reloads this
 Mac account's Zoom profile, the Zoom Safe Meeting Storage keychain item, and
 your macOS Full Name.
 
-This launcher parks those, then starts Zoom with sandbox-exec — not open.
+This launcher parks those, then starts Zoom with sandbox-exec -- not open.
 
 RESET SCRIPT
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# ChurchGuestZoom — BUILD 2026-08-23-J
+# ChurchGuestZoom — BUILD 2026-08-23-K
 # Double-clickable guest Zoom session that cannot load the personal/gamer login.
 #
 # Hang / "did nothing" bugs removed vs build E:
@@ -39,7 +39,7 @@ OSA
 set -u -o pipefail
 
 SCRIPT_NAME="ChurchGuestZoom"
-SCRIPT_VERSION="2026-08-23-J"
+SCRIPT_VERSION="2026-08-23-K"
 GUEST_DISPLAY_NAME=""
 LOG_FILE="$HOME/Desktop/ChurchGuestZoom-log.txt"
 RUN_ID="$(date +%Y%m%d%H%M%S)"

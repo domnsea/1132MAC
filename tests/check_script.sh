@@ -7,8 +7,10 @@ RESET="$ROOT/kit/ZoomReset_Universal_Mac.command"
 TEMP="$ROOT/kit/ZoomTempUser_Launch.command"
 CHURCH="$ROOT/ChurchGuestZoom.command"
 APP="$ROOT/ChurchGuestZoom.app/Contents/MacOS/ChurchGuestZoom"
+APP_SCRIPT="$ROOT/ChurchGuestZoom.app/Contents/Resources/launch.command"
+OPEN_CMD="$ROOT/ChurchGuestZoom-OPEN-ME.command"
 PLIST="$ROOT/ChurchGuestZoom.app/Contents/Info.plist"
-ZIP="$ROOT/ChurchGuestZoom-20260823J.zip"
+ZIP="$ROOT/ChurchGuestZoom-20260823K.zip"
 
 fail() {
   echo "FAIL: $*" >&2
@@ -29,13 +31,28 @@ noncomment() {
 [[ -f "$APP" ]] || fail "missing $APP"
 [[ -f "$PLIST" ]] || fail "missing $PLIST"
 
+[[ -f "$APP_SCRIPT" ]] || fail "missing $APP_SCRIPT"
+[[ -f "$OPEN_CMD" ]] || fail "missing $OPEN_CMD"
+
 bash -n "$RESET" || fail "bash -n failed on reset script"
 bash -n "$TEMP" || fail "bash -n failed on temp launcher"
 bash -n "$CHURCH" || fail "bash -n failed on ChurchGuestZoom.command"
-bash -n "$APP" || fail "bash -n failed on .app executable"
+bash -n "$APP_SCRIPT" || fail "bash -n failed on app launch.command"
+bash -n "$OPEN_CMD" || fail "bash -n failed on OPEN-ME.command"
 pass "bash syntax ok"
 
-cmp -s "$CHURCH" "$APP" || fail "app executable must match ChurchGuestZoom.command"
+# Mach-O little-endian 64-bit magic 0xfeedfacf
+python3 - "$APP" <<'PY' || fail "app CFBundleExecutable must be a Mach-O binary, not a shell script"
+import sys
+from pathlib import Path
+data = Path(sys.argv[1]).read_bytes()[:4]
+if data != bytes.fromhex("cffaedfe"):
+    raise SystemExit("not a 64-bit Mach-O (got %s)" % data.hex())
+PY
+pass "app executable is Mach-O"
+
+cmp -s "$CHURCH" "$APP_SCRIPT" || fail "Resources/launch.command must match ChurchGuestZoom.command"
+cmp -s "$CHURCH" "$OPEN_CMD" || fail "OPEN-ME.command must match ChurchGuestZoom.command"
 cmp -s "$CHURCH" "$TEMP" || fail "kit/ZoomTempUser_Launch.command must match ChurchGuestZoom.command"
 cmp -s "$CHURCH" "$ROOT/kit/ChurchGuestZoom.command" || fail "kit/ChurchGuestZoom.command must match ChurchGuestZoom.command"
 pass "launcher copies are in sync"
@@ -196,9 +213,11 @@ import sys, zipfile
 zpath = sys.argv[1]
 need = {
     "OPEN_ME.txt",
+    "ChurchGuestZoom-OPEN-ME.command",
     "ChurchGuestZoom.app/Contents/Info.plist",
     "ChurchGuestZoom.app/Contents/PkgInfo",
     "ChurchGuestZoom.app/Contents/MacOS/ChurchGuestZoom",
+    "ChurchGuestZoom.app/Contents/Resources/launch.command",
 }
 with zipfile.ZipFile(zpath) as zf:
     names = set(zf.namelist())
@@ -209,13 +228,20 @@ with zipfile.ZipFile(zpath) as zf:
     mode = (info.external_attr >> 16) & 0o777
     if mode & 0o111 == 0:
         raise SystemExit("app executable in zip is not executable (mode=%o)" % mode)
-    data = zf.read("ChurchGuestZoom.app/Contents/MacOS/ChurchGuestZoom")
-    if b"2026-08-23-J" not in data:
-        raise SystemExit("zip app is not build F")
+    macho = zf.read("ChurchGuestZoom.app/Contents/MacOS/ChurchGuestZoom")
+    if macho[:4] != bytes.fromhex("cffaedfe"):
+        raise SystemExit("zip app is not Mach-O")
+    cmdinfo = zf.getinfo("ChurchGuestZoom-OPEN-ME.command")
+    cmdmode = (cmdinfo.external_attr >> 16) & 0o777
+    if cmdmode & 0o111 == 0:
+        raise SystemExit("OPEN-ME.command in zip is not executable (mode=%o)" % cmdmode)
+    data = zf.read("ChurchGuestZoom.app/Contents/Resources/launch.command")
+    if b"2026-08-23-K" not in data:
+        raise SystemExit("zip launch.command is not build K")
     if b"python3" in b"\n".join(line for line in data.splitlines() if not line.lstrip().startswith(b"#")):
-        raise SystemExit("zip app still calls python3")
+        raise SystemExit("zip launcher still calls python3")
 print("zip ok")
 PY
-pass "zip ChurchGuestZoom-20260823J.zip contains executable .app"
+pass "zip ChurchGuestZoom-20260823K.zip contains Mach-O app and OPEN-ME.command"
 
 echo "All checks passed."

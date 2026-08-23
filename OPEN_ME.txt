@@ -1,19 +1,20 @@
-CHURCH GUEST ZOOM — BUILD 2026-08-23-J
+CHURCH GUEST ZOOM — BUILD 2026-08-23-K
 
-This zip is ChurchGuestZoom.app (not a .command file).
+Older zips did not open: the .app was a shell script, and macOS
+ignored the click. This zip has a real Mac binary plus a .command.
 
-HOW TO RUN
+HOW TO RUN (pick one)
 
-1. Quit 1132wtf-v94 first.
-2. Unzip. Drag ChurchGuestZoom.app to the Desktop.
-3. Right-click ChurchGuestZoom.app → Open → Open.
-4. A window MUST appear immediately: "Church Guest Zoom is starting."
-   If you get no window, this is not the J zip.
-5. Click Continue. Enter your Mac password if asked.
-6. If Keychain asks, click Allow (that saves your gamer login for later).
-   If it does not, or you click Deny, guest Zoom still starts and the
-   gamer login is left in Keychain so it is not deleted.
-7. Leave the app in the Dock until you quit Zoom.
+A. Right-click  ChurchGuestZoom-OPEN-ME.command  → Open → Open
+   Terminal should appear, then a dialog.
+
+B. Right-click  ChurchGuestZoom.app  → Open → Open
+   A dialog should appear. Do not just double-click the first time.
+
+If macOS says it is from an unidentified developer: Open anyway.
+
+Quit 1132wtf-v94 first. Click Allow if Keychain asks.
+If Keychain says no, guest Zoom still starts.
 
 Log: Desktop/ChurchGuestZoom-log.txt
 

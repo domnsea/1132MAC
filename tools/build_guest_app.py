@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Build ChurchGuestZoom.app copies and the uniquely named guest zip."""
+"""Build ChurchGuestZoom.app (Mach-O stub + script) and the guest zip."""
 from __future__ import annotations
 
 import os
 import shutil
 import stat
+import subprocess
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -12,18 +13,25 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "ChurchGuestZoom.command"
 APP_BIN = ROOT / "ChurchGuestZoom.app" / "Contents" / "MacOS" / "ChurchGuestZoom"
+APP_SCRIPT = ROOT / "ChurchGuestZoom.app" / "Contents" / "Resources" / "launch.command"
+OPEN_CMD = ROOT / "ChurchGuestZoom-OPEN-ME.command"
 KIT_A = ROOT / "kit" / "ChurchGuestZoom.command"
 KIT_B = ROOT / "kit" / "ZoomTempUser_Launch.command"
-ZIP_PATH = ROOT / "ChurchGuestZoom-20260823J.zip"
+ZIP_PATH = ROOT / "ChurchGuestZoom-20260823K.zip"
 OPEN_ME = ROOT / "OPEN_ME.txt"
-APP_ROOT = ROOT / "ChurchGuestZoom.app"
+
+
+def chmod_exec(path: Path) -> None:
+    path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
 def copy_launchers() -> None:
+    APP_SCRIPT.parent.mkdir(parents=True, exist_ok=True)
     APP_BIN.parent.mkdir(parents=True, exist_ok=True)
-    for dest in (APP_BIN, KIT_A, KIT_B):
+    subprocess.check_call(["python3", str(ROOT / "tools" / "link_macos_stub.py"), str(APP_BIN)])
+    for dest in (APP_SCRIPT, OPEN_CMD, KIT_A, KIT_B):
         shutil.copyfile(SRC, dest)
-        dest.chmod(dest.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+        chmod_exec(dest)
 
 
 def unix_attr(mode: int, is_dir: bool = False) -> int:
@@ -52,7 +60,7 @@ def add_dir(zf: zipfile.ZipFile, arcname: str) -> None:
     if not arcname.endswith("/"):
         arcname += "/"
     zi = zipfile.ZipInfo(arcname)
-    zi.date_time = (2026, 8, 23, 0, 30, 0)
+    zi.date_time = (2026, 8, 23, 1, 20, 0)
     zi.create_system = 3
     zi.external_attr = unix_attr(0o755, is_dir=True)
     zf.writestr(zi, b"")
@@ -63,12 +71,15 @@ def build_zip() -> None:
         ZIP_PATH.unlink()
     with zipfile.ZipFile(ZIP_PATH, "w") as zf:
         add_file(zf, OPEN_ME, "OPEN_ME.txt", 0o644)
+        add_file(zf, OPEN_CMD, "ChurchGuestZoom-OPEN-ME.command", 0o755)
         add_dir(zf, "ChurchGuestZoom.app/")
         add_dir(zf, "ChurchGuestZoom.app/Contents/")
         add_dir(zf, "ChurchGuestZoom.app/Contents/MacOS/")
+        add_dir(zf, "ChurchGuestZoom.app/Contents/Resources/")
         add_file(zf, ROOT / "ChurchGuestZoom.app/Contents/Info.plist", "ChurchGuestZoom.app/Contents/Info.plist", 0o644)
         add_file(zf, ROOT / "ChurchGuestZoom.app/Contents/PkgInfo", "ChurchGuestZoom.app/Contents/PkgInfo", 0o644)
         add_file(zf, APP_BIN, "ChurchGuestZoom.app/Contents/MacOS/ChurchGuestZoom", 0o755)
+        add_file(zf, APP_SCRIPT, "ChurchGuestZoom.app/Contents/Resources/launch.command", 0o755)
 
 
 def build_reset_zip() -> None:

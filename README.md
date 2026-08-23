@@ -4,15 +4,15 @@ Guest Zoom session plus a hard reset. **Do not use if you have unsaved Zoom reco
 
 ## Church / guest Zoom (use this)
 
-Download **`ChurchGuestZoom-20260823J.zip`** only:
+Download **`ChurchGuestZoom-20260823K.zip`** only:
 
-https://github.com/domnsea/1132MAC/raw/cursor/fix-zoom-launch-crash-8c90/ChurchGuestZoom-20260823J.zip
+https://github.com/domnsea/1132MAC/raw/cursor/fix-zoom-launch-crash-8c90/ChurchGuestZoom-20260823K.zip
 
-Unzip, drag **`ChurchGuestZoom.app`** to the Desktop, then **right-click → Open**.
+Unzip. **Right-click** `ChurchGuestZoom-OPEN-ME.command` or `ChurchGuestZoom.app` → **Open**.
 
-A window must appear immediately. If it does not, this is the wrong zip.
+Earlier zips did not open: the `.app` was a shell script, and macOS ignored the click. Build **K** has a real Mac binary.
 
-Build J:
+Build K:
 
 1. Force-closes stuck **End Meeting** windows
 2. Parks personal Zoom files (`zoomus.enc.db`, `zoommeeting.enc.db`)
